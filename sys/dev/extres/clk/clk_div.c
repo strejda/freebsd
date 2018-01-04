@@ -210,7 +210,6 @@ clknode_div_set_freq(struct clknode *clk, uint64_t fin, uint64_t *fout,
 	if (!(sc->div_flags & CLK_DIV_ZERO_BASED))
 		i_div++;
 	divider = i_div << sc->f_width | f_div;
-
 	if ((flags & CLK_SET_DRYRUN) == 0) {
 		if ((*stop != 0) &&
 		    ((flags & (CLK_SET_ROUND_UP | CLK_SET_ROUND_DOWN)) == 0) &&
@@ -260,6 +259,8 @@ clknode_div_register(struct clkdom *clkdom, struct clk_div_def *clkdef)
 	sc->f_width = clkdef->f_width;
 	sc->f_mask = (1 << clkdef->f_width) - 1;
 	sc->div_flags = clkdef->div_flags;
+	if (sc->div_flags & CLK_DIV_WITH_TABLE)
+		sc->div_flags |= CLK_DIV_ZERO_BASED;
 	sc->div_table = clkdef->div_table;
 
 	clknode_register(clkdom, clk);
