@@ -44,3 +44,10 @@ include		"std.qcom"
 include		"std.rockchip"
 include		"std.virt"
 include		"std.xilinx"
+# -----------------------------------------------------
+options		ZFS
+options 	ROOTDEVNAME=\"zfs:zroot/ROOT/default\"
+#options 	BOOTHOWTO=RB_SINGLE
+#options 	BOOTVERBOSE
+device		hwpmc
+#options 	ROOTDEVNAME=\"ufs:gpt/rootfs\"
