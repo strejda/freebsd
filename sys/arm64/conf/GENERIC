@@ -369,3 +369,7 @@ device		acpi
 
 # DTBs
 makeoptions	MODULES_EXTRA="dtb/allwinner dtb/freescale dtb/imx8 dtb/mv dtb/rockchip dtb/rpi"
+options		LINUX_BOOT_ABI
+options		ZFS
+options 	ROOTDEVNAME=\"zfs:zroot/ROOT/default\"
+options 	BOOTHOWTO=RB_SINGLE
