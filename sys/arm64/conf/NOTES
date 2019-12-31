@@ -25,6 +25,9 @@ cpu		ARM64
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
 
+makeoptions	WITH_ARM_BIN_KERNEL=yes
+makeoptions	WITH_ARM_BOOTI_KERNEL=yes
+
 options 	PRINTF_BUFR_SIZE=128	# Prevent printf output being interspersed.
 options 	KDTRACE_FRAME		# Ensure frames are compiled in
 options 	VFP			# Floating-point support

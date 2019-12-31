@@ -7,6 +7,8 @@ cpu		CPU_CORTEXA
 cpu		CPU_MV_PJ4B
 makeoptions	CONF_CFLAGS+="-march=armv7a"
 
+makeoptions	WITH_ARM_BIN_KERNEL=yes
+
 # Add options for armv7 that are not in sys/conf/NOTES...
 
 options 	FDT			# Flattened device tree support
