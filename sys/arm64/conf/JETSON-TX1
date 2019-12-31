@@ -260,12 +260,10 @@ device		tegra210_xusb_fw  # Tegra XUSB firmware
 #options 	SOCDEV_VA=0x70000000
 
 options 	LINUX_BOOT_ABI
-#options 	FDT_DTB_STATIC
-#makeoptions	FDT_DTS_FILE=nvidia/tegra210-p2371-2180-fbsd.dts
+makeoptions 	MK_ARM_BIN_KERNEL=yes
 options 	ROOTDEVNAME=\"ufs:ada0p2\"
 makeoptions	MODULES_EXTRA="dtb/nvidia"
 options 	ALT_BREAK_TO_DEBUGGER
-#options 	BREAK_TO_DEBUGGER
 #options 	BOOTVERBOSE
 options 	BOOTHOWTO=RB_SINGLE
 options 	KTR

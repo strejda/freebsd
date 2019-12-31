@@ -109,7 +109,7 @@ function write_v8jump() {
 	#   offset from the current PC, in words.  We know the gStart offset
 	#   is in the first 2mb, so it'll fit in 26 bits.
 
-	write_le32(hexstr_to_num("14000000") + (gStartOff / 4) - 2)
+	write_le32(hexstr_to_num("14000000") + (gStartOff / 4))
 }
 
 function write_v8booti() {
