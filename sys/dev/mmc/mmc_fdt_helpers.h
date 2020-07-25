@@ -68,6 +68,7 @@ struct mmc_fdt_helper {
 typedef void (*mmc_fdt_cd_handler)(device_t dev, bool present);
 
 int mmc_fdt_parse(device_t dev, phandle_t node, struct mmc_fdt_helper *helper, struct mmc_host *host);
+int mmc_fdt_parse_volt_range(device_t dev, phandle_t node, struct mmc_host *host);
 int mmc_fdt_gpio_setup(device_t dev, phandle_t node, struct mmc_fdt_helper *helper, mmc_fdt_cd_handler handler);
 void mmc_fdt_gpio_teardown(struct mmc_fdt_helper *helper);
 bool mmc_fdt_gpio_get_present(struct mmc_fdt_helper *helper);

@@ -50,8 +50,8 @@ mmc_fdt_parse_sd_speed(phandle_t node, struct mmc_host *host)
 {
 	bool no_18v = false;
 
-	/* 
-	 * Parse SD supported modes 
+	/*
+	 * Parse SD supported modes
 	 * All UHS-I modes requires 1.8V signaling.
 	 */
 	if (OF_hasprop(node, "no1-8-v"))
@@ -114,7 +114,7 @@ mmc_fdt_parse(device_t dev, phandle_t node, struct mmc_fdt_helper *helper,
 	if (bus_width >= 8)
 		host->caps |= MMC_CAP_8_BIT_DATA;
 
-	/* 
+	/*
 	 * max-frequency is optional, drivers should tweak this value
 	 * if it's not present based on the clock that the mmc controller
 	 * operates on
@@ -181,6 +181,64 @@ mmc_fdt_parse(device_t dev, phandle_t node, struct mmc_fdt_helper *helper,
 		host->caps |= MMC_CAP_SIGNALING_330;
 #endif
 
+	return (0);
+}
+
+static int
+mmc_vdd_to_bit(uint32_t volt, bool round_down)
+{
+
+	if (volt >= 1650 && volt <= 1950)
+		return (7);
+	if (round_down) volt--;
+	if (volt >= 3500)
+		return(23);
+	return((volt - 2000) / 100 + 8);
+}
+
+static uint32_t
+mmc_volt_range_to_ocr(uint32_t v_min, uint32_t v_max)
+{
+	uint32_t mask;
+	int bit_max, bit_min, i;
+
+	if (v_max < v_min || v_min < 1650 || v_max > 3600)
+		return (0);
+
+	bit_max = mmc_vdd_to_bit(v_max, false);
+	bit_min = mmc_vdd_to_bit(v_min, true);
+
+	/* Fill the mask, from max bit to min bit. */
+	mask = 0;
+	for(i = bit_min; i <= bit_max; i++)
+		mask |= 1 << i;
+
+	return (mask);
+}
+
+/*
+ * Parse 'voltage-ranges' property.
+ */
+int
+mmc_fdt_parse_volt_range(device_t dev, phandle_t node, struct mmc_host *host)
+{
+	uint32_t *elems, tmp, mask;
+	int nelems, i;
+
+	nelems = OF_getencprop_alloc_multi(node, "voltage-ranges",
+	    sizeof(*elems), (void **)&elems);
+	if (nelems <= 0)
+		return (ENOENT);
+	nelems /= 2;
+	mask = 0;
+	for (i = 0; i < nelems; i++) {
+		tmp = mmc_volt_range_to_ocr(elems[2 * i], elems[2 * i + 1]);
+		if (tmp == 0)
+			printf("Skipping invalid voltage range (%d, %d)\n",
+			    elems[2 * i], elems[2 * i + 1]);
+		mask |= tmp;
+	}
+	OF_prop_free(elems);
 	return (0);
 }
 
@@ -358,7 +416,7 @@ mmc_fdt_gpio_setup(device_t dev, phandle_t node, struct mmc_fdt_helper *helper,
 	cd_setup(helper, node);
 	wp_setup(helper, node);
 
-	/* 
+	/*
 	 * Schedule a card detection
 	 */
 	taskqueue_enqueue_timeout_sbt(taskqueue_swi_giant,
