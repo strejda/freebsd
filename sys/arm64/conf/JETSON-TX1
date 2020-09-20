@@ -159,6 +159,7 @@ device		uart_ns8250	# ns8250-type UART driver
 #device		pl011
 
 # USB support
+options 	USB_HOST_ALIGN=64       # Align usb buffers to cache line size.o
 options 	USB_DEBUG		# enable debug msgs
 #device		aw_ehci			# Allwinner EHCI USB interface (USB 2.0)
 #device		aw_usbphy		# Allwinner USB PHY
@@ -236,6 +237,7 @@ options 	EXT_RESOURCES
 device		clk
 device		phy
 device		hwreset
+device		nvmem
 device		regulator
 device		syscon
 
