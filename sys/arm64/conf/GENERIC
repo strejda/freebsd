@@ -320,6 +320,7 @@ device		hwreset
 device		nvmem
 device		regulator
 device		syscon
+device		thermal
 device		aw_syscon
 
 # IO Domains
