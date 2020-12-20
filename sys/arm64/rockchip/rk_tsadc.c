@@ -40,13 +40,13 @@
 #include <sys/module.h>
 #include <sys/malloc.h>
 #include <sys/rman.h>
-#include <sys/sysctl.h>
 
 #include <machine/bus.h>
 
 #include <dev/clk/clk.h>
 #include <dev/hwreset/hwreset.h>
 #include <dev/syscon/syscon.h>
+#include <dev/extres/thermal/tsensor.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
@@ -100,7 +100,6 @@
 #define	WR4(_sc, _r, _v)	bus_write_4((_sc)->mem_res, (_r), (_v))
 #define	RD4(_sc, _r)		bus_read_4((_sc)->mem_res, (_r))
 
-static struct sysctl_ctx_list tsadc_sysctl_ctx;
 
 struct tsensor {
 	char 			*name;
@@ -131,6 +130,7 @@ struct tsadc_conf {
 
 struct tsadc_softc {
 	device_t		dev;
+	pcell_t			node;
 	struct resource		*mem_res;
 	struct resource		*irq_res;
 	void			*irq_ih;
@@ -381,6 +381,32 @@ static struct ofw_compat_data compat_data[] = {
 	{NULL,		0}
 };
 
+
+struct rk_typec_phy_softc {
+	device_t		dev;
+	phandle_t 		node;
+	struct resource		*res;
+	struct syscon		*grf;
+	clk_t			tcpdcore;
+	clk_t			tcpdphy_ref;
+	hwreset_t		rst_uphy;
+	hwreset_t		rst_pipe;
+	hwreset_t		rst_tcphy;
+	int			mode;
+	int			phy_ctrl_id;
+};
+
+/* Tsensor class and methods. */
+static int tsads_tsnode_temperature(struct tsnode *ts, int *val);
+static tsnode_method_t tsadc_tsnode_methods[] = {
+	TSNODEMETHOD(tsnode_temperature, tsads_tsnode_temperature),
+
+	TSNODEMETHOD_END
+};
+
+DEFINE_CLASS_1(tsadc_tsnode, tsadc_tsnode_class, tsadc_tsnode_methods,
+    0, tsnode_class);
+
 static uint32_t
 tsadc_temp_to_raw(struct tsadc_softc *sc, int temp)
 {
@@ -587,76 +613,49 @@ tsadc_read_temp(struct tsadc_softc *sc, struct tsensor *sensor, int *temp)
 }
 
 static int
-tsadc_get_temp(device_t dev, device_t cdev, uintptr_t id, int *val)
+tsads_tsnode_temperature(struct tsnode *tsnode, int *val)
 {
 	struct tsadc_softc *sc;
-	int i, rv;
+	device_t dev;
+	int id;
+	int rv;
 
+	dev = tsnode_get_device(tsnode);
+	id = (int)tsnode_get_id(tsnode);
 	sc = device_get_softc(dev);
 
 	if (id >= sc->conf->ntsensors)
 		return (ERANGE);
-
-	for (i = 0; i < sc->conf->ntsensors; i++) {
-		if (sc->conf->tsensors->id == id) {
-			rv =tsadc_read_temp(sc, sc->conf->tsensors + id, val);
-			return (rv);
-		}
-	}
-	return (ERANGE);
-}
-
-static int
-tsadc_sysctl_temperature(SYSCTL_HANDLER_ARGS)
-{
-	struct tsadc_softc *sc;
-	int val;
-	int rv;
-	int id;
-
-	/* Write request */
-	if (req->newptr != NULL)
-		return (EINVAL);
-
-	sc = arg1;
-	id = arg2;
-
-	if (id >= sc->conf->ntsensors)
-		return (ERANGE);
-	rv =  tsadc_read_temp(sc, sc->conf->tsensors + id, &val);
+	rv =  tsadc_read_temp(sc, sc->conf->tsensors + id, val);
 	if (rv != 0)
 		return (rv);
 
-	val = val / 100;
-	val +=  2731;
-	rv = sysctl_handle_int(oidp, &val, 0, req);
 	return (rv);
 }
 
 static int
-tsadc_init_sysctl(struct tsadc_softc *sc)
+tsadc_register_sensors(struct tsadc_softc *sc)
 {
 	int i;
-	struct sysctl_oid *oid, *tmp;
+	struct tsnode *tsnode;
+	struct tsnode_init_def tsensor_init;
 
-	sysctl_ctx_init(&tsadc_sysctl_ctx);
-	/* create node for hw.temp */
-	oid = SYSCTL_ADD_NODE(&tsadc_sysctl_ctx,
-	    SYSCTL_STATIC_CHILDREN(_hw), OID_AUTO, "temperature",
-	    CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, "");
-	if (oid == NULL)
-		return (ENXIO);
+	for (i = 0; i < sc->conf->ntsensors; i++) {
+		tsensor_init.id = i;
+		tsensor_init.name = sc->conf->tsensors[i].name;
+		tsensor_init.ofw_node = sc->node;
 
-	/* Add sensors */
-	for (i = sc->conf->ntsensors  - 1; i >= 0; i--) {
-		tmp = SYSCTL_ADD_PROC(&tsadc_sysctl_ctx,
-		    SYSCTL_CHILDREN(oid), OID_AUTO, sc->conf->tsensors[i].name,
-		    CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_NEEDGIANT, sc, i,
-		    tsadc_sysctl_temperature, "IK", "SoC Temperature");
-		if (tmp == NULL)
+		tsnode = tsnode_create(sc->dev, &tsadc_tsnode_class,
+		    &tsensor_init);
+		if (tsnode == NULL) {
+			device_printf(sc->dev, "failed to create tsensor\n");
 			return (ENXIO);
+		}
+		if (tsnode_register(tsnode) == NULL) {
+			device_printf(sc->dev, "failed to register tsensor\n");
+			return (ENXIO);
+		}
 	}
-
 	return (0);
 }
 
@@ -700,13 +699,12 @@ static int
 tsadc_attach(device_t dev)
 {
 	struct tsadc_softc *sc;
-	phandle_t node;
 	uint32_t val;
 	int i, rid, rv;
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
-	node = ofw_bus_get_node(sc->dev);
+	sc->node = ofw_bus_get_node(sc->dev);
 	sc->conf = (struct tsadc_conf *)
 	    ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	sc->alarm_temp = 90000;
@@ -751,23 +749,23 @@ tsadc_attach(device_t dev)
 	}
 
 	/* grf is optional */
-	rv = syscon_get_by_ofw_property(dev, node, "rockchip,grf", &sc->grf);
+	rv = syscon_get_by_ofw_property(dev, sc->node, "rockchip,grf", &sc->grf);
 	if (rv != 0 && rv != ENOENT) {
 		device_printf(dev, "Cannot get 'grf' syscon: %d\n", rv);
 		goto fail;
 	}
 
-	rv = OF_getencprop(node, "rockchip,hw-tshut-temp",
+	rv = OF_getencprop(sc->node, "rockchip,hw-tshut-temp",
 	    &sc->shutdown_temp, sizeof(sc->shutdown_temp));
 	if (rv <= 0)
 		sc->shutdown_temp = sc->conf->shutdown_temp;
 
-	rv = OF_getencprop(node, "rockchip,hw-tshut-mode",
+	rv = OF_getencprop(sc->node, "rockchip,hw-tshut-mode",
 	    &sc->shutdown_mode, sizeof(sc->shutdown_mode));
 	if (rv <= 0)
 		sc->shutdown_mode = sc->conf->shutdown_mode;
 
-	rv = OF_getencprop(node, "rockchip,hw-tshut-polarity",
+	rv = OF_getencprop(sc->node, "rockchip,hw-tshut-polarity",
 	    &sc->shutdown_pol, sizeof(sc->shutdown_pol));
 	if (rv <= 0)
 		sc->shutdown_pol = sc->conf->shutdown_pol;
@@ -780,7 +778,7 @@ tsadc_attach(device_t dev)
 	}
 
 	/* Set the assigned clocks parent and freq */
-	rv = clk_set_assigned(sc->dev, node);
+	rv = clk_set_assigned(sc->dev, sc->node);
 	if (rv != 0 && rv != ENOENT) {
 		device_printf(dev, "clk_set_assigned failed\n");
 		goto fail;
@@ -811,18 +809,15 @@ tsadc_attach(device_t dev)
 	val |= TSADC_AUTO_CON_AUTO;
 	WR4(sc, TSADC_AUTO_CON, val);
 
-	rv = tsadc_init_sysctl(sc);
+	rv = tsadc_register_sensors(sc);
 	if (rv != 0) {
-		device_printf(sc->dev, "Cannot initialize sysctls\n");
-		goto fail_sysctl;
+		device_printf(sc->dev, "Cannot register sensors\n");
+		goto fail;
 	}
 
-	OF_device_register_xref(OF_xref_from_node(node), dev);
 	bus_attach_children(dev);
 	return (0);
 
-fail_sysctl:
-	sysctl_ctx_free(&tsadc_sysctl_ctx);
 fail:
 	if (sc->irq_ih != NULL)
 		bus_teardown_intr(dev, sc->irq_res, sc->irq_ih);
@@ -848,7 +843,6 @@ tsadc_detach(device_t dev)
 
 	if (sc->irq_ih != NULL)
 		bus_teardown_intr(dev, sc->irq_res, sc->irq_ih);
-	sysctl_ctx_free(&tsadc_sysctl_ctx);
 	if (sc->tsadc_clk != NULL)
 		clk_release(sc->tsadc_clk);
 	if (sc->apb_pclk_clk != NULL)
@@ -868,9 +862,6 @@ static device_method_t rk_tsadc_methods[] = {
 	DEVMETHOD(device_probe,			tsadc_probe),
 	DEVMETHOD(device_attach,		tsadc_attach),
 	DEVMETHOD(device_detach,		tsadc_detach),
-
-	/* TSADC interface */
-	DEVMETHOD(rk_tsadc_get_temperature,	tsadc_get_temp),
 
 	DEVMETHOD_END
 };
