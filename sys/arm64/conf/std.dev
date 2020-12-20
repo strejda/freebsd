@@ -67,6 +67,7 @@ device		hwreset
 device		nvmem
 device		regulator
 device		syscon
+device		thermal
 
 # EVDEV support
 device		evdev			# input event device support
