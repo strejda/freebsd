@@ -1761,6 +1761,7 @@ dev/extres/syscon/syscon_power.c	optional ext_resources syscon syscon_power fdt
 dev/extres/thermal/tsensor.c		optional ext_resources thermal fdt
 dev/extres/thermal/tsdev_if.m		optional ext_resources thermal fdt
 dev/extres/thermal/tsnode_if.m		optional ext_resources thermal fdt
+dev/extres/thermal/tzones.c		optional ext_resources thermal fdt
 dev/fb/fbd.c			optional fbd | vt
 dev/fb/fb_if.m			standard
 dev/fb/splash.c			optional sc splash
