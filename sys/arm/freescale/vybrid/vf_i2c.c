@@ -90,6 +90,7 @@ __FBSDID("$FreeBSD$");
 #define	 IBIC_BIIE		(1 << 7) /* Bus Idle Interrupt Enable bit. */
 #define	I2C_IBDBG	0x6	/* I2C Bus Debug Register */
 
+#define DEBUG
 #ifdef DEBUG
 #define vf_i2c_dbg(_sc, fmt, args...) \
 	device_printf((_sc)->dev, fmt, ##args)
@@ -273,19 +274,22 @@ wait_for_iif(struct i2c_softc *sc)
 	return (IIC_ETIMEOUT);
 }
 
-/* Wait for free bus */
+/* Wait for bus busy / buf free*/
 static int
-wait_for_nibb(struct i2c_softc *sc)
+wait_for_ibb(struct i2c_softc *sc, bool busy)
 {
 	int retry;
+	uint8_t reg;
 
 	retry = 1000;
 	while (retry --) {
-		if ((READ1(sc, I2C_IBSR) & IBSR_IBB) == 0)
+		reg = READ1(sc, I2C_IBSR);
+		if (reg & IBSR_IBAL)
+			return (IIC_EBUSERR);
+		if ((busy ? (reg & IBSR_IBB) != 0 : reg) == 0)
 			return (IIC_NOERR);
 		DELAY(10);
 	}
-
 	return (IIC_ETIMEOUT);
 }
 
@@ -378,7 +382,11 @@ i2c_start(device_t dev, u_char slave, int timeout)
 
 	mtx_lock(&sc->mutex);
 
-	WRITE1(sc, I2C_IBAD, slave);
+	WRITE1(sc, I2C_IBSR, 0xFF);
+	reg = 0;
+	WRITE1(sc, I2C_IBCR, reg);
+	DELAY(50);
+
 
 	if (READ1(sc, I2C_IBSR) & IBSR_IBB) {
 		mtx_unlock(&sc->mutex);
@@ -387,28 +395,33 @@ i2c_start(device_t dev, u_char slave, int timeout)
 	}
 
 	/* Set start condition */
-	reg = (IBCR_MSSL | IBCR_NOACK | IBCR_IBIE);
+	reg = IBCR_MSSL;
 	WRITE1(sc, I2C_IBCR, reg);
 
-	DELAY(100);
+	error = wait_for_ibb(sc, true);
+	if (error != 0) {
+		mtx_unlock(&sc->mutex);
+		vf_i2c_dbg(sc, "cant i2c start: bus is not busy\n");
+		return (error);
+	}
 
-	reg |= (IBCR_TXRX);
+	reg |= IBCR_IBIE | IBCR_TXRX | IBCR_NOACK;
 	WRITE1(sc, I2C_IBCR, reg);
 
 	/* Write target address - LSB is R/W bit */
 	WRITE1(sc, I2C_IBDR, slave);
 
-	error = wait_for_iif(sc);
+	error = wait_for_icf(sc);
 	if (error != 0) {
 		mtx_unlock(&sc->mutex);
-		vf_i2c_dbg(sc, "cant i2c start: iif error\n");
+		vf_i2c_dbg(sc, "timedout waiting for device address\n");
 		return (error);
 	}
 	mtx_unlock(&sc->mutex);
 
 	if (!tx_acked(sc)) {
 		vf_i2c_dbg(sc,
-		    "cant i2c start: missing QACK after slave addres\n");
+		    "cant i2c start: missing ACK after slave addres\n");
 		return (IIC_ENOACK);
 	}
 
@@ -431,7 +444,8 @@ i2c_stop(device_t dev)
 	DELAY(100);
 
 	/* Reset controller if bus still busy after STOP */
-	if (wait_for_nibb(sc) == IIC_ETIMEOUT) {
+	if (wait_for_ibb(sc, false ) == IIC_ETIMEOUT) {
+		vf_i2c_dbg(sc, "stop timeouted - force reset\n");
 		WRITE1(sc, I2C_IBCR, IBCR_MDIS);
 		DELAY(1000);
 		WRITE1(sc, I2C_IBCR, IBCR_NOACK);
@@ -531,7 +545,7 @@ i2c_read(device_t dev, char *buf, int len, int *read, int last, int delay)
 
 	if (len) {
 		if (len == 1)
-			WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL |	\
+			WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL |
 			    IBCR_NOACK);
 		else
 			WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL);
@@ -548,15 +562,24 @@ i2c_read(device_t dev, char *buf, int len, int *read, int last, int delay)
 			return (error);
 		}
 
-		if ((*read == len - 2) && last) {
-			/* NO ACK on last byte */
-			WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL |	\
-			    IBCR_NOACK);
-		}
-
-		if ((*read == len - 1) && last) {
-			/* Transfer done, remove master bit */
-			WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_NOACK);
+		if (last) {
+			if (*read == len - 2){
+				/*
+				 * No ACK on the last byte (it should be set
+				 * before reading the last byte from the data
+				 * register).
+				 */
+				WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL |
+				   IBCR_NOACK);
+			} else if (*read == len - 1) {
+				/*
+				 * Transfer completed, switch to TX mode,
+				 * otherwise next (last) read from the data
+				 * register will start another read cycle.
+				 */
+				WRITE1(sc, I2C_IBCR, IBCR_IBIE | IBCR_MSSL |
+				    IBCR_TXRX | IBCR_NOACK);
+			}
 		}
 
 		*buf++ = READ1(sc, I2C_IBDR);
@@ -589,9 +612,11 @@ i2c_write(device_t dev, const char *buf, int len, int *sent, int timeout)
 			return (error);
 		}
 
-		if (!tx_acked(sc) && (*sent  = (len - 2)) ){
+		vf_i2c_dbg(sc, " sent: %d, ACK: %d, SR: 0x%02X \n", *sent,
+		    tx_acked(sc), READ1(sc, I2C_IBSR));
+		if (!tx_acked(sc) && *sent != (len - 1)) {
 			mtx_unlock(&sc->mutex);
-			vf_i2c_dbg(sc, "no ACK on %d write\n", *sent);
+			vf_i2c_dbg(sc, "no ACK on write, sent: %d\n", *sent);
 			return (IIC_ENOACK);
 		}
 
