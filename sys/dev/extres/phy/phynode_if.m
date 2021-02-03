@@ -30,6 +30,9 @@ INTERFACE phynode;
 
 HEADER {
 	struct phynode;
+	#ifndef DEV_EXTRES_PHY_H
+	#include <dev/extres/phy/phy.h>
+	#endif
 }
 
 #
@@ -58,4 +61,14 @@ METHOD int status {
 	int		*status;    /* PHY_STATUS_* */
 };
 
+
+#
+# Set mode for complex phy
+# Returns 0 on success or a standard errno value.
+#
+METHOD int set_mode  {
+	struct phynode	*phynode;
+	phy_mode_t	mode;
+	phy_submode_t	submode;
+};
 
