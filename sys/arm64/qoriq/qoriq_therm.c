@@ -84,26 +84,6 @@ struct qoriq_therm_softc {
 
 static struct sysctl_ctx_list qoriq_therm_sysctl_ctx;
 
-struct tsensor default_sensors[] =
-{
-	{ 0,	"site0",		0 },
-	{ 1,	"site1",		1 },
-	{ 2,	"site2",		2 },
-	{ 3,	"site3",		3 },
-	{ 4,	"site4",		4 },
-	{ 5,	"site5",		5 },
-	{ 6,	"site6",		6 },
-	{ 7,	"site7",		7 },
-	{ 8,	"site8",		8 },
-	{ 9,	"site9",		9 },
-	{ 10,	"site10",		10 },
-	{ 11,	"site11",		11 },
-	{ 12,	"site12",		12 },
-	{ 13,	"site13",		13 },
-	{ 14,	"site14",		14 },
-	{ 15,	"site15",		15 },
-};
-
 static struct tsensor imx8mq_sensors[] =
 {
 	{ 0,	"cpu",			0 },
@@ -348,7 +328,6 @@ static int
 qoriq_therm_attach(device_t dev)
 {
 	struct qoriq_therm_softc *sc;
-	struct qoriq_therm_socs *soc;
 	phandle_t node, root;
 	uint32_t sites;
 	int rid, rv;
@@ -398,25 +377,22 @@ qoriq_therm_attach(device_t dev)
 
 	sc->ver = (RD4(sc, TMU_VERSION) >> 8) & 0xFF;
 
-	/* Select per SoC configuration. */
+	/* Select per SoC configuration */
 	root = OF_finddevice("/");
 	if (root < 0) {
 		device_printf(dev, "Cannot get root node: %d\n", root);
 		goto fail;
 	}
-	soc = qoriq_therm_socs;
-	while (soc != NULL && soc->name != NULL) {
-		if (ofw_bus_node_is_compatible(root, soc->name))
-			break;
-		soc++;
-	}
-	if (soc == NULL) {
-		device_printf(dev, "Unsupported SoC, using default sites.\n");
-		sc->tsensors = default_sensors;
-		sc->ntsensors = nitems(default_sensors);
+
+	if (ofw_bus_node_is_compatible(root, "fsl,lx2160a")) {
+		sc->ntsensors = nitems(lx2160_sensors);
+		sc->tsensors = lx2160_sensors;
+	} else if (ofw_bus_node_is_compatible(root, "fsl,ls1028a")) {
+		sc->ntsensors = nitems(ls1028_sensors);
+		sc->tsensors = ls1028_sensors;
 	} else {
-		sc->tsensors = soc->tsensors;
-		sc->ntsensors = soc->ntsensors;
+		device_printf(dev, "Unsupported SoC version\n");
+		goto fail;
 	}
 
 	/* stop monitoring */
