@@ -432,6 +432,8 @@ int sdhci_generic_resume(struct sdhci_slot *slot);
 void sdhci_generic_reset(device_t brdev, struct sdhci_slot *slot, uint8_t mask);
 int sdhci_generic_update_ios(device_t brdev, device_t reqdev);
 int sdhci_generic_tune(device_t brdev, device_t reqdev, bool hs400);
+int sdhci_generic_prepare_clock(device_t brdev, struct sdhci_slot *slot,
+     uint32_t clock);
 int sdhci_generic_switch_vccq(device_t brdev, device_t reqdev);
 int sdhci_generic_retune(device_t brdev, device_t reqdev, bool reset);
 int sdhci_generic_request(device_t brdev, device_t reqdev,
