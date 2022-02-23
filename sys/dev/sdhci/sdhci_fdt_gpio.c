@@ -92,6 +92,18 @@ cd_setup(struct sdhci_fdt_gpio *gpio, phandle_t node)
 	}
 
 	/*
+	 * If the device is flagged as broken-cd set a flag to make
+	 * sdhci_fdt_gpio_get_present() always return true.
+	 */
+		if (OF_hasprop(node, "broken-cd")) {
+		gpio->cd_disabled = true;
+		if (bootverbose)
+			device_printf(dev, "Broken card detect\n");
+		return;
+	}
+
+
+	/*
 	 * If there is no cd-gpios property, then presumably the hardware
 	 * PRESENT_STATE register and interrupts will reflect card state
 	 * properly, and there's nothing more for us to do.  Our get_present()
