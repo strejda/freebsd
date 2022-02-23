@@ -157,6 +157,13 @@ cd_setup(struct mmc_helper *helper, phandle_t node)
 		if (bootverbose)
 			device_printf(dev, "Non-removable media\n");
 		return;
+
+	}
+	if (helper->props & MMC_PROP_BROKEN_CD) {
+		helper->cd_disabled = true;
+		if (bootverbose)
+			device_printf(dev, "Broken Card detect\n");
+		return;
 	}
 
 	/*
