@@ -183,3 +183,9 @@ METHOD void reset {
 	struct sdhci_slot	*slot;
 	uint8_t			mask;
 } DEFAULT sdhci_generic_reset;
+
+METHOD int prepare_clock {
+	device_t		brdev;
+	struct sdhci_slot	*slot;
+	uint32_t		freq;
+} DEFAULT sdhci_generic_prepare_clock;
