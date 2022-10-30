@@ -122,6 +122,20 @@ RD4(struct tegra_sdhci_softc *sc, bus_size_t off)
 	return (bus_read_4(sc->mem_res, off));
 }
 
+static inline uint16_t
+RD2(struct tegra_sdhci_softc *sc, bus_size_t off)
+{
+
+	return (bus_read_2(sc->mem_res, off));
+}
+
+static inline void
+WR2(struct tegra_sdhci_softc *sc, bus_size_t off, uint16_t val)
+{
+
+	bus_write_2(sc->mem_res, off, val);
+}
+
 static uint8_t
 tegra_sdhci_read_1(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 {
@@ -263,6 +277,7 @@ tegra_sdhci_attach(device_t dev)
 	struct tegra_sdhci_softc *sc;
 	int rid, rv;
 	uint64_t freq;
+	uint16_t val;
 	phandle_t node, prop;
 
 	sc = device_get_softc(dev);
@@ -344,7 +359,8 @@ tegra_sdhci_attach(device_t dev)
 	    SDHCI_QUIRK_MISSING_CAPS;
 
 	/* Limit real slot capabilities. */
-	sc->caps = RD4(sc, SDHCI_CAPABILITIES);
+	sc->caps = RD4(sc, SDHCI_CAPABILITIES) | SDHCI_CAN_DO_64BIT;
+	sc->caps &= ~SDHCI_CAN_DO_64BIT;
 	if (OF_getencprop(node, "bus-width", &prop, sizeof(prop)) > 0) {
 		sc->caps &= ~(MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA);
 		switch (prop) {
@@ -363,6 +379,12 @@ tegra_sdhci_attach(device_t dev)
 	}
 	if (OF_hasprop(node, "non-removable"))
 		sc->force_card_present = 1;
+
+	val = RD2(sc, SDHCI_HOST_CONTROL2);
+	val &= ~SDHCI_CTRL2_HOST_V4_ENABLE;
+	val &= ~SDHCI_CTRL2_64BIT_ENABLE;
+	WR2(sc, SDHCI_HOST_CONTROL2, val);
+
 	/*
 	 * Clear clock field, so SDHCI driver uses supplied frequency.
 	 * in sc->slot.max_clk
