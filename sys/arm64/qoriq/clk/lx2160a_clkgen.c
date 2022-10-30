@@ -81,19 +81,6 @@ static struct qoriq_clk_pll_def *cg_plls[] = {
 	&cgb_pll2,
 };
 
-#if 0
-static struct qoriq_clk_pll_def *cg_plls[] = {
-	&(struct qoriq_clk_pll_def)
-	    {PLL(QORIQ_TYPE_INTERNAL, 0, "cga_pll1", 0x80, cg_divs)},
-	&(struct qoriq_clk_pll_def)
-	    {PLL(QORIQ_TYPE_INTERNAL, 0, "cga_pll2", 0xA0, cg_divs)},
-	&(struct qoriq_clk_pll_def)
-	    {PLL(QORIQ_TYPE_INTERNAL, 0, "cgb_pll1", 0x10080, cg_divs)},
-	&(struct qoriq_clk_pll_def)
-	    {PLL(QORIQ_TYPE_INTERNAL, 0, "cgb_pll2", 0x100A0, cg_divs)},
-};
-#endif
-
 static const char *cmuxa_plist[] = {
 	"cga_pll1",
 	"cga_pll1_div2",
@@ -185,12 +172,6 @@ lx2160a_clkgen_attach(device_t dev)
 
 	rv = qoriq_clkgen_attach(dev);
 
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x00080, bus_read_4(sc->res, 0x00080));
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x000A0, bus_read_4(sc->res, 0x000A0));
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x10080, bus_read_4(sc->res, 0x10080));
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x100A0, bus_read_4(sc->res, 0x100A0));
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x60080, bus_read_4(sc->res, 0x60080));
-	printf(" %s: offset: 0x%08X, val: 0x%08X\n", __func__, 0x600A0, bus_read_4(sc->res, 0x600A0));
 	return (rv);
 }
 
