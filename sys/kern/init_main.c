@@ -317,8 +317,8 @@ mi_startup(void)
 				printf("   %s(%p)... ", func, sip->udata);
 			else
 #endif
-				printf("   %p(%p)... ", sip->func,
-				    sip->udata);
+				printf("   %p, %s(%p)... ", sip->func,
+				    sip->name, sip->udata);
 		}
 #endif
 
