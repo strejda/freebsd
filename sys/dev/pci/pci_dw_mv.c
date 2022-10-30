@@ -108,15 +108,17 @@ pci_mv_phy_init(struct pci_mv_softc *sc)
 		rv =  phy_get_by_ofw_idx(sc->dev, sc->node, i, &(sc->phy[i]));
 		if (rv != 0 && rv != ENOENT) {
 			device_printf(sc->dev, "Cannot get phy[%d]\n", i);
-/* XXX revert when phy driver will be implemented */
-#if 0
 		goto fail;
-#else
-		continue;
-#endif
 		}
 		if (sc->phy[i] == NULL)
 			continue;
+		rv = phy_set_mode(sc->phy[i], PHY_MODE_PCIE,
+		    sc->dw_sc.num_lanes);
+		if (rv != 0) {
+			device_printf(sc->dev,
+			    "Cannot se mode for phy[%d]\n", i);
+			goto fail;
+		}
 		rv = phy_enable(sc->phy[i]);
 		if (rv != 0) {
 			device_printf(sc->dev, "Cannot enable phy[%d]\n", i);
@@ -269,6 +271,19 @@ pci_mv_attach(device_t dev)
 	rv = clk_get_by_ofw_name(sc->dev, 0, "reg", &sc->clk_reg);
 	if (rv != 0) {
 		device_printf(sc->dev, "Cannot get 'reg' clock\n");
+		rv = ENXIO;
+		goto out;
+	}
+
+	rv = OF_getencprop(sc->node, "num-lanes", &sc->dw_sc.num_lanes,
+	    sizeof(sc->dw_sc.num_lanes));
+	if (rv != sizeof(sc->dw_sc.num_lanes))
+		sc->dw_sc.num_lanes = 1;
+	if (sc->dw_sc.num_lanes != 1 && sc->dw_sc.num_lanes != 2 &&
+	    sc->dw_sc.num_lanes != 4 && sc->dw_sc.num_lanes != 8) {
+		device_printf(dev,
+		    "invalid number of lanes: %d\n", sc->dw_sc.num_lanes);
+		sc->dw_sc.num_lanes = 0;
 		rv = ENXIO;
 		goto out;
 	}
