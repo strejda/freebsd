@@ -134,6 +134,8 @@ const char *regulator_get_name(regulator_t regulator);
 int regulator_enable(regulator_t reg);
 int regulator_disable(regulator_t reg);
 int regulator_stop(regulator_t reg);
+int regulator_on(regulator_t reg);
+int regulator_off(regulator_t reg);
 int regulator_status(regulator_t reg, int *status);
 int regulator_get_voltage(regulator_t reg, int *uvolt);
 int regulator_set_voltage(regulator_t reg, int min_uvolt, int max_uvolt);

@@ -957,6 +957,48 @@ regulator_disable(regulator_t reg)
 	return (rv);
 }
 
+/* Uncounted version of regulator_enable */
+int
+regulator_on(regulator_t reg)
+{
+	int rv;
+	struct regnode *regnode;
+
+	rv = 0;
+	regnode = reg->regnode;
+	KASSERT(regnode->ref_cnt > 0,
+	   ("Attempt to access unreferenced regulator: %s\n", regnode->name));
+	REG_TOPO_SLOCK();
+	if (reg->enable_cnt == 0) {
+		rv = regnode_enable(regnode);
+		if (rv == 0)
+			reg->enable_cnt = 1;
+	}
+	REG_TOPO_UNLOCK();
+	return (rv);
+}
+
+/* Uncounted version of regulator_disable */
+int
+regulator_off(regulator_t reg)
+{
+	int rv;
+	struct regnode *regnode;
+
+	rv = 0;
+	regnode = reg->regnode;
+	KASSERT(regnode->ref_cnt > 0,
+	   ("Attempt to access unreferenced regulator: %s\n", regnode->name));
+	REG_TOPO_SLOCK();
+	if (reg->enable_cnt > 0) {
+		rv = regnode_disable(regnode);
+		if (rv == 0)
+			reg->enable_cnt = 0;
+	};
+	REG_TOPO_UNLOCK();
+	return (rv);
+}
+
 int
 regulator_stop(regulator_t reg)
 {
