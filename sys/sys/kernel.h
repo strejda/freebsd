@@ -229,6 +229,7 @@ struct sysinit {
 	STAILQ_ENTRY(sysinit)	next;		/* singly-linked list */
 	sysinit_cfunc_t func;			/* function */
 	const void	*udata;			/* multiplexer/argument */
+	char *name;
 };
 
 /*
@@ -263,6 +264,7 @@ void sysinit_tslog_shim(const void *);
 		{ NULL },					\
 		sysinit_tslog_shim,				\
 		&uniquifier ## _sys_init_tslog			\
+		#uniquifier					\
 	};							\
 	DATA_WSET(sysinit_set, uniquifier ## _sys_init)
 #else
@@ -272,7 +274,8 @@ void sysinit_tslog_shim(const void *);
 		order,						\
 		{ NULL },					\
 		func,						\
-		(ident)						\
+		(ident),					\
+		#uniquifier					\
 	};							\
 	DATA_WSET(sysinit_set, uniquifier ## _sys_init)
 #endif
