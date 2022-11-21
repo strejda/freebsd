@@ -406,8 +406,8 @@ sdhci_init(struct sdhci_slot *slot)
 	WR4(slot, SDHCI_SIGNAL_ENABLE, slot->intmask);
 }
 
-int sdhci_generic_prepare_clock(device_t brdev, struct sdhci_slot *slot,
-     uint32_t clock)
+static void
+sdhci_set_clock(struct sdhci_slot *slot, uint32_t clock)
 {
 	uint32_t clk_base;
 	uint32_t clk_sel;
@@ -416,13 +416,17 @@ int sdhci_generic_prepare_clock(device_t brdev, struct sdhci_slot *slot,
 	uint16_t div;
 	int timeout;
 
-	if (clock == slot->req_clock)
-		return;
 	if (clock == slot->clock)
 		return;
-	slot->req_clock = clock;
-	clock = SDHCI_SET_CLOCK(slot->bus, slot, clock);
 	slot->clock = clock;
+
+	/* Turn off the clock. */
+	clk = RD2(slot, SDHCI_CLOCK_CONTROL);
+	WR2(slot, SDHCI_CLOCK_CONTROL, clk & ~SDHCI_CLOCK_CARD_EN);
+	/* If no clock requested - leave it so. */
+	if (clock == 0)
+		return;
+
 	/* Determine the clock base frequency */
 	clk_base = slot->max_clk;
 	if (slot->quirks & SDHCI_QUIRK_BCM577XX_400KHZ_CLKSRC) {
@@ -481,7 +485,7 @@ int sdhci_generic_prepare_clock(device_t brdev, struct sdhci_slot *slot,
 		<< SDHCI_DIVIDER_HI_SHIFT;
 
 	WR2(slot, SDHCI_CLOCK_CONTROL, clk);
-	/* Enable internal clock generator. */
+	/* Enable clock. */
 	clk |= SDHCI_CLOCK_INT_EN;
 	WR2(slot, SDHCI_CLOCK_CONTROL, clk);
 	/* Wait up to 10 ms until it stabilize. */
@@ -492,35 +496,12 @@ int sdhci_generic_prepare_clock(device_t brdev, struct sdhci_slot *slot,
 			slot_printf(slot,
 			    "Internal clock never stabilised.\n");
 			sdhci_dumpregs(slot);
-			return(EIO);
+			return;
 		}
 		timeout--;
 		DELAY(1000);
 	}
-	return(0);
-}
-
-static void
-sdhci_set_clock(struct sdhci_slot *slot, uint32_t clock)
-{
-	uint16_t clk;
-
-	if (clock == slot->clock)
-		return;
-	slot->clock = clock;
-
-	/* Turn off the clock. */
-	clk = RD2(slot, SDHCI_CLOCK_CONTROL);
-	WR2(slot, SDHCI_CLOCK_CONTROL, clk & ~SDHCI_CLOCK_CARD_EN);
-
-	/* If no clock requested - leave it so. */
-	if (clock == 0)
-		return;
-
-	SDHCI_PREPARE_CLOCK(slot->bus, slot, clock);
-
 	/* Pass clock signal to the bus. */
-	clk = RD2(slot, SDHCI_CLOCK_CONTROL);
 	clk |= SDHCI_CLOCK_CARD_EN;
 	WR2(slot, SDHCI_CLOCK_CONTROL, clk);
 }
