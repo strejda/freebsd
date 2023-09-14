@@ -88,7 +88,7 @@
 #include "msi_if.h"
 
 #define	INTRNAME_LEN	(2*MAXCOMLEN + 1)
-
+#define	INTR_TYPE_MAX	2
 #ifdef DEBUG
 #define debugf(fmt, args...) do { printf("%s(): ", __func__);	\
     printf(fmt,##args); } while (0)
@@ -100,12 +100,13 @@ MALLOC_DECLARE(M_INTRNG);
 MALLOC_DEFINE(M_INTRNG, "intr", "intr interrupt handling");
 
 /* Main interrupt handler called from assembler -> 'hidden' for C code. */
+void intr_irq_handler_type(struct trapframe *tf, uint32_t);
 void intr_irq_handler(struct trapframe *tf);
 
-/* Root interrupt controller stuff. */
-device_t intr_irq_root_dev;
-static intr_irq_filter_t *irq_root_filter;
-static void *irq_root_arg;
+device_t intr_irq_root_dev[INTR_TYPE_MAX + 1];
+static intr_irq_filter_t *irq_root_filter[INTR_TYPE_MAX + 1];
+static void *irq_root_arg[INTR_TYPE_MAX + 1];
+static u_int irq_root_ipicount[INTR_TYPE_MAX + 1];
 
 struct intr_pic_child {
 	SLIST_ENTRY(intr_pic_child)	 pc_next;
@@ -327,22 +328,23 @@ isrc_release_counters(struct intr_irqsrc *isrc)
  *  from the assembler, where CPU interrupt is served.
  */
 void
-intr_irq_handler(struct trapframe *tf)
+intr_irq_handler_type(struct trapframe *tf, uint32_t type)
 {
 	struct trapframe * oldframe;
 	struct thread * td;
 
-	KASSERT(irq_root_filter != NULL, ("%s: no filter", __func__));
+	KASSERT(irq_root_filter[type] != NULL, ("%s: no filter", __func__));
 
 	kasan_mark(tf, sizeof(*tf), sizeof(*tf), 0);
 	kmsan_mark(tf, sizeof(*tf), KMSAN_STATE_INITED);
 
 	VM_CNT_INC(v_intr);
+// ???  Is critical enter valid for all  interrupt types,mainly NMI ???
 	critical_enter();
 	td = curthread;
 	oldframe = td->td_intr_frame;
 	td->td_intr_frame = tf;
-	irq_root_filter(irq_root_arg);
+	irq_root_filter[type](irq_root_arg[type]);
 	td->td_intr_frame = oldframe;
 	critical_exit();
 #ifdef HWPMC_HOOKS
@@ -351,6 +353,15 @@ intr_irq_handler(struct trapframe *tf)
 		pmc_hook(PCPU_GET(curthread), PMC_FN_USER_CALLCHAIN, tf);
 #endif
 }
+
+// remove me after all MD parts was converted
+void
+intr_irq_handler(struct trapframe *tf)
+{
+
+	intr_irq_handler_type(tf, INTR_TYPE_IRQ);
+}
+
 
 int
 intr_child_irq_handler(struct intr_pic *parent, uintptr_t irq)
@@ -876,8 +887,8 @@ intr_pic_deregister(device_t dev, intptr_t xref)
  *     an interrupts property and thus no explicit interrupt parent."
  */
 int
-intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
-    void *arg)
+intr_pic_claim_root_type(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
+    void *arg, uint32_t type)
 {
 	struct intr_pic *pic;
 
@@ -901,19 +912,36 @@ intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
 	 * Note that we further suppose that there is not threaded interrupt
 	 * routine (handler) on the root. See intr_irq_handler().
 	 */
-	if (intr_irq_root_dev != NULL) {
+	if (intr_irq_root_dev[type] != NULL) {
 		device_printf(dev, "another root already set\n");
 		return (EBUSY);
 	}
+	intr_irq_root_dev[type] = dev;
+#if 1 // Remove/modfy me after D35899 will be committed
+	if (intr_irq_root_dev[0] != 0 &&  intr_irq_root_dev[0] != dev)
+	    panic ("All interrupt roots must be connected to same device");
+	intr_irq_root_dev[0] = dev;
+#endif
 
-	intr_irq_root_dev = dev;
-	irq_root_filter = filter;
-	irq_root_arg = arg;
+	irq_root_filter[type] = filter;
+	irq_root_arg[type] = arg;
+	irq_root_filter[type] = filter;
 
-	debugf("irq root set to %s\n", device_get_nameunit(dev));
+	debugf("irq root[%ju] set to %s\n", (uintmax_t)type,
+	    device_get_nameunit(dev));
 	return (0);
 }
 
+int
+intr_pic_claim_root(device_t dev, intptr_t xref, intr_irq_filter_t *filter,
+    void *arg, u_int ipicount)
+{
+	int error;
+
+	error = intr_pic_claim_root_type(dev, xref, filter, arg, ipicount,
+	    INTR_TYPE_IRQ);
+	return (error);
+}
 /*
  * Add a handler to manage a sub range of a parents interrupts.
  */
@@ -1552,14 +1580,16 @@ dosoftints(void)
 void
 intr_pic_init_secondary(void)
 {
-
+	
 	/*
 	 * QQQ: Only root PIC is aware of other CPUs ???
 	 */
-	KASSERT(intr_irq_root_dev != NULL, ("%s: no root attached", __func__));
+	KASSERT(intr_irq_root_dev[0] != NULL, ("%s: no IRQ root attached", __func__));
 
 	//mtx_lock(&isrc_table_lock);
-	PIC_INIT_SECONDARY(intr_irq_root_dev);
+	//for (uint32_t i = 0; i < INTR_TYPE_MAX; i++)
+	//	PIC_INIT_SECONDARY(intr_irq_root_dev[i]); 
+	PIC_INIT_SECONDARY(intr_irq_root_dev[0]); 
 	//mtx_unlock(&isrc_table_lock);
 }
 #endif

@@ -35,6 +35,11 @@
 
 #include <sys/systm.h>
 
+#define INTR_TYPE_IRQ	0
+#define INTR_TYPE_FIQ	1
+#define INTR_TYPE_NMI	2
+
+
 #define	INTR_IRQ_INVALID	0xFFFFFFFF
 
 enum intr_map_data_type {
@@ -94,6 +99,7 @@ struct intr_irqsrc {
 #endif
 	/* Used by MSI interrupts to store the iommu details */
 	void *			isrc_iommu;
+	uint32_t		isdrc_intr_type; // Fill it !!!
 };
 
 /* Intr interface for PIC. */
@@ -111,11 +117,13 @@ u_int intr_irq_next_cpu(u_int current_cpu, cpuset_t *cpumask);
 struct intr_pic *intr_pic_register(device_t, intptr_t);
 int intr_pic_deregister(device_t, intptr_t);
 int intr_pic_claim_root(device_t, intptr_t, intr_irq_filter_t *, void *);
+int intr_pic_claim_root_type(device_t, intptr_t, intr_irq_filter_t *, void *,
+    uint32_t);
 int intr_pic_add_handler(device_t, struct intr_pic *,
     intr_child_irq_filter_t *, void *, uintptr_t, uintptr_t);
 bool intr_is_per_cpu(struct resource *);
 
-extern device_t intr_irq_root_dev;
+extern device_t intr_irq_root_dev[];
 
 /* Intr interface for BUS. */
 

@@ -591,8 +591,8 @@ gic_v3_alloc_resource(device_t bus, device_t child, int type, int *rid,
 	    count, flags));
 }
 
-int
-arm_gic_v3_intr(void *arg)
+static int
+arm_gic_v3_intr(void *arg, uint32_t type)
 {
 	struct gic_v3_softc *sc = arg;
 	struct gic_v3_irqsrc *gi;
@@ -654,6 +654,25 @@ arm_gic_v3_intr(void *arg)
 		}
 	}
 }
+
+// This is only example - I think that FIQ needs slightly different handler
+int
+arm_gic_v3_intr_irq(void *arg)
+{
+	struct gic_v3_softc *sc = arg;
+
+	return(arm_gic_v3_intr(sc, INTR_TYPE_IRQ));
+}
+
+int
+arm_gic_v3_intr_fiq(void *arg)
+{
+	struct gic_v3_softc *sc = arg;
+
+	panic("FIQ is not implemented yet");
+	return(arm_gic_v3_intr(sc, INTR_TYPE_FIQ));
+}
+
 
 #ifdef FDT
 static int

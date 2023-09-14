@@ -161,7 +161,17 @@ gic_v3_fdt_attach(device_t dev)
 	/* Register xref */
 	OF_device_register_xref(xref, dev);
 
+<<<<<<< HEAD
 	if (intr_pic_claim_root(dev, xref, arm_gic_v3_intr, sc) != 0) {
+=======
+	if (intr_pic_claim_root_type(dev, xref, arm_gic_v3_intr_irq, sc,
+	    INTR_TYPE_IRQ) != 0) {
+		err = ENXIO;
+		goto error;
+	}
+	if (intr_pic_claim_root_type(dev, xref, arm_gic_v3_intr_fiq, sc,
+	    0, INTR_TYPE_FIQ) != 0) {
+>>>>>>> 20d30ff7c757 (WIP: Multiple roots fo interrupt types)
 		err = ENXIO;
 		goto error;
 	}

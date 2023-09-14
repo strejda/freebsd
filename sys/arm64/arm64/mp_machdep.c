@@ -296,6 +296,73 @@ smp_after_idle_runnable(void *arg __unused)
 SYSINIT(smp_after_idle_runnable, SI_SUB_SMP, SI_ORDER_ANY,
     smp_after_idle_runnable, NULL);
 
+<<<<<<< HEAD
+=======
+/*
+ *  Send IPI thru interrupt controller.
+ */
+static void
+pic_ipi_send(void *arg, cpuset_t cpus, u_int ipi)
+{
+
+	KASSERT(intr_irq_root_dev[0] != NULL, ("%s: no root attached", __func__));
+
+	/*
+	 * Ensure that this CPU's stores will be visible to IPI
+	 * recipients before starting to send the interrupts.
+	 */
+	dsb(ishst);
+
+	PIC_IPI_SEND(intr_irq_root_dev[0], arg, cpus, ipi);
+}
+
+/*
+ *  Setup IPI handler on interrupt controller.
+ *
+ *  Not SMP coherent.
+ */
+static void
+intr_pic_ipi_setup(u_int ipi, const char *name, intr_ipi_handler_t *hand,
+    void *arg)
+{
+	struct intr_irqsrc *isrc;
+	struct intr_ipi *ii;
+	int error;
+
+	KASSERT(intr_irq_root_dev[0] != NULL, ("%s: no root attached", __func__));
+	KASSERT(hand != NULL, ("%s: ipi %u no handler", __func__, ipi));
+
+	error = PIC_IPI_SETUP(intr_irq_root_dev[0], ipi, &isrc);
+	if (error != 0)
+		return;
+
+	isrc->isrc_handlers++;
+
+	ii = intr_ipi_lookup(ipi);
+	KASSERT(ii->ii_count == NULL, ("%s: ipi %u reused", __func__, ipi));
+
+	ii->ii_handler = hand;
+	ii->ii_handler_arg = arg;
+	ii->ii_send = pic_ipi_send;
+	ii->ii_send_arg = isrc;
+	strlcpy(ii->ii_name, name, INTR_IPI_NAMELEN);
+	ii->ii_count = intr_ipi_setup_counters(name);
+
+	PIC_ENABLE_INTR(intr_irq_root_dev[0], isrc);
+}
+
+static void
+intr_ipi_send(cpuset_t cpus, u_int ipi)
+{
+	struct intr_ipi *ii;
+
+	ii = intr_ipi_lookup(ipi);
+	if (ii->ii_count == NULL)
+		panic("%s: not setup IPI %u", __func__, ipi);
+
+	ii->ii_send(ii->ii_send_arg, cpus, ipi);
+}
+
 static void
 ipi_ast(void *dummy __unused)
 {

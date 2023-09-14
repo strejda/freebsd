@@ -345,6 +345,16 @@ gic_v3_acpi_attach(device_t dev)
 		}
 	}
 
+	if (intr_pic_claim_root_type(dev, ACPI_INTR_XREF, arm_gic_v3_intr_irq,
+	    sc, INTR_TYPE_IRQ) != 0) {
+		err = ENXIO;
+		goto error;
+	}
+	if (intr_pic_claim_root_type(dev, ACPI_INTR_XREF, arm_gic_v3_intr_fiq,
+	    sc, INTR_TYPE_FIQ) != 0) {
+		err = ENXIO;
+		goto error;
+	}
 	if (intr_pic_claim_root(dev, ACPI_INTR_XREF, arm_gic_v3_intr, sc)
 	    != 0) {
 		err = ENXIO;
