@@ -446,8 +446,9 @@ pci_dw_decode_ranges(struct pci_dw_softc *sc, struct ofw_pci_range *ranges,
 
 	nmem = 0;
 	for (i = 0; i < nranges; i++) {
-		if ((ranges[i].pci_hi & OFW_PCI_PHYS_HI_SPACEMASK)  ==
-		    OFW_PCI_PHYS_HI_SPACE_IO) {
+		switch (ranges[i].pci_hi & OFW_PCI_PHYS_HI_SPACEMASK) {
+		
+		case OFW_PCI_PHYS_HI_SPACE_IO:
 			if (sc->io_range.size != 0) {
 				device_printf(sc->dev,
 				    "Duplicated IO range found in DT\n");
@@ -463,9 +464,9 @@ pci_dw_decode_ranges(struct pci_dw_softc *sc, struct ofw_pci_range *ranges,
 				    "trimming window size to 4GB\n");
 				sc->io_range.size = UINT32_MAX;
 			}
-		}
-		if ((ranges[i].pci_hi & OFW_PCI_PHYS_HI_SPACEMASK) ==
-		    OFW_PCI_PHYS_HI_SPACE_MEM32) {
+
+		case OFW_PCI_PHYS_HI_SPACE_MEM32:
+		case OFW_PCI_PHYS_HI_SPACE_MEM64:
 			MPASS(nmem < sc->num_mem_ranges);
 			sc->mem_ranges[nmem] = ranges[i];
 			if (sc->mem_ranges[nmem].size > UINT32_MAX) {
@@ -476,6 +477,14 @@ pci_dw_decode_ranges(struct pci_dw_softc *sc, struct ofw_pci_range *ranges,
 				sc->mem_ranges[nmem].size = UINT32_MAX;
 			}
 			++nmem;
+			break;
+
+		default:
+			device_printf(sc->dev,
+				    "Unsupported range(0x%x) in %s\n",
+				    ranges[i].pci_hi &
+				    OFW_PCI_PHYS_HI_SPACEMASK,
+				    __func__);
 		}
 	}
 
