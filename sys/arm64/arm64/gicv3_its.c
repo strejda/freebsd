@@ -287,28 +287,50 @@ struct gicv3_its_softc {
 #define	ITS_FLAGS_LPI_CONF_FLUSH	0x00000002
 #define	ITS_FLAGS_ERRATA_CAVIUM_22375	0x00000004
 #define	ITS_FLAGS_LPI_PREALLOC		0x00000008
+#define	ITS_FLAGS_FORCE_NOSHAREABLE	0x00000010
 	u_int sc_its_flags;
 	bool	trace_enable;
 	vm_page_t ma; /* fake msi page */
+	vm_paddr_t malloc_max_addr; /* max address of contigmalloc stuff */
 };
 
+typedef bool (its_quirk_detect_t)(device_t);
 typedef void (its_quirk_func_t)(device_t);
-static its_quirk_func_t its_quirk_cavium_22375;
+
+static its_quirk_detect_t its_detect_cavium_22375;
+static its_quirk_func_t   its_quirk_cavium_22375;
+#ifdef FDT
+static its_quirk_detect_t its_detect_rk356x;
+static its_quirk_func_t   its_quirk_rk356x;
+static its_quirk_detect_t its_detect_rk3588;
+static its_quirk_func_t   its_quirk_rk3588;
+#endif
 
 static const struct {
 	const char *desc;
-	uint32_t iidr;
-	uint32_t iidr_mask;
+	its_quirk_detect_t *detect;
 	its_quirk_func_t *func;
 } its_quirks[] = {
 	{
 		/* Cavium ThunderX Pass 1.x */
 		.desc = "Cavium ThunderX errata: 22375, 24313",
-		.iidr = GITS_IIDR_RAW(GITS_IIDR_IMPL_CAVIUM,
-		    GITS_IIDR_PROD_THUNDER, GITS_IIDR_VAR_THUNDER_1, 0),
-		.iidr_mask = ~GITS_IIDR_REVISION_MASK,
+		.detect = its_detect_cavium_22375,
 		.func = its_quirk_cavium_22375,
 	},
+#ifdef FDT
+	{
+		/* Rockchip RK356X implementation bugs */
+		.desc = "RK356X ITS errata",
+		.detect = its_detect_rk356x,
+		.func = its_quirk_rk356x,
+	},
+	{
+		/* Rockchip RK3588 implementation bugs */
+		.desc = "RK3588 ITS errata",
+		.detect = its_detect_rk3588,
+		.func = its_quirk_rk3588,
+	},
+#endif
 };
 
 #define	gic_its_read_4(sc, reg)			\
@@ -387,6 +409,13 @@ static device_method_t gicv3_its_methods[] = {
 static DEFINE_CLASS_0(gic, gicv3_its_driver, gicv3_its_methods,
     sizeof(struct gicv3_its_softc));
 
+/* Limit maximum address of memory mapped tables and buffers */
+static vm_paddr_t
+gicv3_its_limit_max_addr(struct gicv3_its_softc *sc, vm_paddr_t addr)
+{
+	return (sc->malloc_max_addr > addr ? addr: sc->malloc_max_addr);
+}
+
 static void
 gicv3_its_cmdq_init(struct gicv3_its_softc *sc)
 {
@@ -395,7 +424,8 @@ gicv3_its_cmdq_init(struct gicv3_its_softc *sc)
 
 	/* Set up the command circular buffer */
 	sc->sc_its_cmd_base = contigmalloc_domainset(ITS_CMDQ_SIZE, M_GICV3_ITS,
-	    sc->sc_ds, M_WAITOK | M_ZERO, 0, (1ul << 48) - 1, ITS_CMDQ_ALIGN,
+	    sc->sc_ds, M_WAITOK | M_ZERO, 0,
+	    gicv3_its_limit_max_addr(sc, (1ul << 48) - 1), ITS_CMDQ_ALIGN,
 	    0);
 	sc->sc_its_cmd_next_idx = 0;
 
@@ -404,8 +434,11 @@ gicv3_its_cmdq_init(struct gicv3_its_softc *sc)
 	/* Set the base of the command buffer */
 	reg = GITS_CBASER_VALID |
 	    (GITS_CBASER_CACHE_NIWAWB << GITS_CBASER_CACHE_SHIFT) |
-	    cmd_paddr | (GITS_CBASER_SHARE_IS << GITS_CBASER_SHARE_SHIFT) |
-	    (ITS_CMDQ_SIZE / 4096 - 1);
+	    cmd_paddr | (ITS_CMDQ_SIZE / 4096 - 1);
+	if (sc->sc_its_flags & ITS_FLAGS_FORCE_NOSHAREABLE)
+		reg |= GITS_CBASER_SHARE_NS << GITS_CBASER_SHARE_SHIFT;
+	else
+		reg |= GITS_CBASER_SHARE_IS << GITS_CBASER_SHARE_SHIFT;
 	gic_its_write_8(sc, GITS_CBASER, reg);
 
 	/* Read back to check for fixed value fields */
@@ -611,7 +644,8 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 		/* Allocate the table */
 		table = contigmalloc_domainset(npages * PAGE_SIZE,
 		    M_GICV3_ITS, sc->sc_ds, M_WAITOK | M_ZERO, 0,
-		    (1ul << 48) - 1, PAGE_SIZE_64K, 0);
+		    gicv3_its_limit_max_addr(sc, (1ul << 48) - 1),
+		    PAGE_SIZE_64K, 0);
 
 		sc->sc_its_ptab[i].ptab_vaddr = table;
 		sc->sc_its_ptab[i].ptab_l1_size = its_tbl_size;
@@ -741,7 +775,8 @@ gicv3_its_conftable_init(struct gicv3_its_softc *sc)
 		 * PROPBASER register later in its_init_cpu_lpi().
 		 */
 		conf_table = contigmalloc(LPI_CONFTAB_SIZE,
-		    M_GICV3_ITS, M_WAITOK, 0, LPI_CONFTAB_MAX_ADDR,
+		    M_GICV3_ITS, M_WAITOK, 0,
+		    gicv3_its_limit_max_addr(sc, LPI_CONFTAB_MAX_ADDR),
 		    LPI_CONFTAB_ALIGN, 0);
 	}
 	sc->sc_conf_base = conf_table;
@@ -766,7 +801,9 @@ gicv3_its_pendtables_init(struct gicv3_its_softc *sc)
 
 			sc->sc_pend_base[i] = contigmalloc(
 			    LPI_PENDTAB_SIZE, M_GICV3_ITS, M_WAITOK | M_ZERO,
-			    0, LPI_PENDTAB_MAX_ADDR, LPI_PENDTAB_ALIGN, 0);
+			    0,
+			    gicv3_its_limit_max_addr(sc, LPI_PENDTAB_MAX_ADDR),
+			    LPI_PENDTAB_ALIGN, 0);
 
 			/* Flush so the ITS can see the memory */
 			cpu_dcache_wb_range(sc->sc_pend_base[i],
@@ -1003,6 +1040,7 @@ gicv3_its_init_sysctl(struct gicv3_its_softc *sc)
 	return (0);
 }
 
+
 static int
 gicv3_its_attach(device_t dev)
 {
@@ -1017,6 +1055,7 @@ gicv3_its_attach(device_t dev)
 	sc->sc_irq_length = gicv3_get_nirqs(dev);
 	sc->sc_irq_base = GIC_FIRST_LPI;
 	sc->sc_irq_base += device_get_unit(dev) * sc->sc_irq_length;
+	sc->malloc_max_addr =  ~0;
 
 	rid = 0;
 	sc->sc_its_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
@@ -1034,7 +1073,7 @@ gicv3_its_attach(device_t dev)
 	CPU_COPY(&all_cpus, &sc->sc_cpus);
 	iidr = gic_its_read_4(sc, GITS_IIDR);
 	for (i = 0; i < nitems(its_quirks); i++) {
-		if ((iidr & its_quirks[i].iidr_mask) == its_quirks[i].iidr) {
+		if (its_quirks[i].detect(dev)) {
 			if (bootverbose) {
 				device_printf(dev, "Applying %s\n",
 				    its_quirks[i].desc);
@@ -1128,6 +1167,21 @@ gicv3_its_detach(device_t dev)
 	return (ENXIO);
 }
 
+static bool
+its_detect_cavium_22375(device_t dev)
+{
+	uint32_t iidr;
+	struct gicv3_its_softc *sc;
+
+	sc = device_get_softc(dev);
+	iidr = gic_its_read_4(sc, GITS_IIDR);
+	if ((iidr &  ~GITS_IIDR_REVISION_MASK) ==
+	    GITS_IIDR_RAW(GITS_IIDR_IMPL_CAVIUM, GITS_IIDR_PROD_THUNDER,
+	    GITS_IIDR_VAR_THUNDER_1, 0))
+		return (true);
+	return(false);
+}
+
 static void
 its_quirk_cavium_22375(device_t dev)
 {
@@ -1150,6 +1204,48 @@ its_quirk_cavium_22375(device_t dev)
 		}
 	}
 }
+
+#ifdef FDT
+static bool
+its_detect_rk356x(device_t dev)
+{
+
+	if (ofw_bus_is_machine_compatible("rockchip,rk3568") ||
+	    ofw_bus_is_machine_compatible("rockchip,rk3568"))
+		return (true);
+	return(false);
+}
+
+static void
+its_quirk_rk356x(device_t dev)
+{
+/*	struct gicv3_its_softc *sc;
+	int domain;
+
+	sc = device_get_softc(dev);
+	sc->sc_its_flags |= ITS_FLAGS_ERRATA_CAVIUM_22375;
+*/
+}
+
+static bool
+its_detect_rk3588(device_t dev)
+{
+
+	if (ofw_bus_is_machine_compatible("rockchip,rk3588") ||
+	    ofw_bus_is_machine_compatible("rockchip,rk3588s"))
+		return (true);
+	return(false);
+}
+
+static void
+its_quirk_rk3588(device_t dev)
+{
+	struct gicv3_its_softc *sc;
+
+	sc = device_get_softc(dev);
+	sc->sc_its_flags |= ITS_FLAGS_FORCE_NOSHAREABLE;
+}
+#endif
 
 static void
 gicv3_its_disable_intr(device_t dev, struct intr_irqsrc *isrc)
@@ -1400,7 +1496,8 @@ its_device_alloc(struct gicv3_its_softc *sc, int devid)
 		shareable = false;
 
 	l2_table = contigmalloc_domainset(ptable->ptab_l2_size,
-	    M_GICV3_ITS, sc->sc_ds, M_WAITOK | M_ZERO, 0, (1ul << 48) - 1,
+	    M_GICV3_ITS, sc->sc_ds, M_WAITOK | M_ZERO, 0,
+	    gicv3_its_limit_max_addr(sc, (1ul << 48) - 1),
 	    ptable->ptab_page_size, 0);
 
 	if (!shareable)
@@ -1461,7 +1558,8 @@ its_device_get(device_t dev, device_t child, u_int nvecs)
 	itt_size = roundup2(MAX(nvecs, 2) * esize, 256);
 	its_dev->itt = contigmalloc_domainset(itt_size,
 	    M_GICV3_ITS, sc->sc_ds, M_NOWAIT | M_ZERO, 0,
-	    LPI_INT_TRANS_TAB_MAX_ADDR, LPI_INT_TRANS_TAB_ALIGN, 0);
+	    gicv3_its_limit_max_addr(sc, LPI_INT_TRANS_TAB_MAX_ADDR),
+	    LPI_INT_TRANS_TAB_ALIGN, 0);
 	if (its_dev->itt == NULL) {
 		vmem_free(sc->sc_irq_alloc, its_dev->lpis.lpi_base, nvecs);
 		free(its_dev, M_GICV3_ITS);
