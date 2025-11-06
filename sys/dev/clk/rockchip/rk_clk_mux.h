@@ -35,12 +35,15 @@ struct rk_clk_mux_def {
 	uint32_t		offset;
 	uint32_t		shift;
 	uint32_t		width;
+	uint32_t		gate_offset;
+	uint32_t		gate_shift;
 	int			mux_flags;
 };
 
 #define	RK_CLK_MUX_MASK		0xFFFF0000
 #define	RK_CLK_MUX_REPARENT	(1 << 0)
 #define	RK_CLK_MUX_GRF		(1 << 1)
+#define	RK_CLK_MUX_HAVE_GATE	(1 << 2)
 
 int rk_clk_mux_register(struct clkdom *clkdom, struct rk_clk_mux_def *clkdef);
 
