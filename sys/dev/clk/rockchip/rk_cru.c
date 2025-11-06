@@ -106,21 +106,40 @@ rk_cru_modify_4(device_t dev, bus_addr_t addr, uint32_t clr, uint32_t set)
 	return (0);
 }
 
+static int rk_cru_reset_map(struct rk_cru_softc *sc, uint32_t id,
+				    uint32_t *reg, int *bit)
+{
+
+	if (id > sc->reset_num)
+		return (ENXIO);
+
+	if (sc->reset_table == NULL) {
+
+		*reg = sc->reset_offset + id / 16 * 4;
+		*bit = id % 16;
+	} else {
+		if (sc->reset_table[id].id != id)
+			return (ENXIO);
+		*reg = sc->reset_table[id].reg;
+		*bit = sc->reset_table[id].bit;
+	}
+
+	return (0);
+}
+
 static int
 rk_cru_reset_assert(device_t dev, intptr_t id, bool reset)
 {
 	struct rk_cru_softc *sc;
 	uint32_t reg;
-	int bit;
+	int bit, rv;
 	uint32_t val;
 
 	sc = device_get_softc(dev);
 
-	if (id > sc->reset_num)
-		return (ENXIO);
-
-	reg = sc->reset_offset + id / 16 * 4;
-	bit = id % 16;
+	rv = rk_cru_reset_map(sc, id, &reg, &bit);
+	if (rv != 0)
+		return (rv);
 
 	mtx_lock(&sc->mtx);
 	val = 0;
@@ -137,15 +156,14 @@ rk_cru_reset_is_asserted(device_t dev, intptr_t id, bool *reset)
 {
 	struct rk_cru_softc *sc;
 	uint32_t reg;
-	int bit;
+	int bit, rv;
 	uint32_t val;
 
 	sc = device_get_softc(dev);
 
-	if (id > sc->reset_num)
-		return (ENXIO);
-	reg = sc->reset_offset + id / 16 * 4;
-	bit = id % 16;
+	rv = rk_cru_reset_map(sc, id, &reg, &bit);
+	if (rv != 0)
+		return (rv);
 
 	mtx_lock(&sc->mtx);
 	val = CCU_READ4(sc, reg);
@@ -190,6 +208,8 @@ rk_cru_register_gates(struct rk_cru_softc *sc)
 		def.clkdef.name = sc->gates[i].name;
 		def.clkdef.parent_names = &sc->gates[i].parent_name;
 		def.clkdef.parent_cnt = 1;
+		def.clkdef.flags =  CLK_NODE_STATIC_STRINGS |
+		    sc->gates[i].flags;
 		def.offset = sc->gates[i].offset;
 		def.shift = sc->gates[i].shift;
 		def.mask = 1;
@@ -240,6 +260,10 @@ rk_cru_attach(device_t dev)
 			rk3399_clk_pll_register(sc->clkdom,
 			    sc->clks[i].clk.pll);
 			break;
+		case RK3588_CLK_PLL:
+			rk3588_clk_pll_register(sc->clkdom,
+			    sc->clks[i].clk.pll);
+			break;
 		case RK_CLK_COMPOSITE:
 			rk_clk_composite_register(sc->clkdom,
 			    sc->clks[i].clk.composite);
@@ -275,13 +299,58 @@ rk_cru_attach(device_t dev)
 	if (clkdom_finit(sc->clkdom) != 0)
 		panic("cannot finalize clkdom initialization\n");
 
-	if (bootverbose)
-		clkdom_dump(sc->clkdom);
+//	if (bootverbose)
+//		clkdom_dump(sc->clkdom);
 
 	clk_set_assigned(dev, node);
 
+if (bootverbose)
+clkdom_dump(sc->clkdom);
+
 	/* register our self as a reset provider */
 	hwreset_register_ofw_provider(dev);
+#if 0
+
+#define	CRU_BASE			0x00000000
+#define	PHP_CRU_BASE			0x00008000
+#define	PMU_CRU_BASE			0x00030000
+#define	BC0_CRU_BASE			0x00050000
+#define	BC1_CRU_BASE			0x00052000
+#define	DSU_CRU_BASE			0x00058000
+
+int r, j;
+printf("CRU Dump:\n");
+for (r = 0; r  < 0x1000;) {
+ printf("0x%04X:", r);
+ for (j = 0; j < 8; j++) {
+  printf(" 0x%08X", CCU_READ4(sc, r));
+  if (j != 7) printf(", ");
+  r += 4;
+ }
+ printf("\n");
+}
+
+printf("PMUCRU Dump:\n");
+for (r = PMU_CRU_BASE; r  < (PMU_CRU_BASE + 0x1000);) {
+ printf("0x%04X:", r);
+ for (j = 0; j < 8; j++) {
+  printf(" 0x%08X", CCU_READ4(sc, r));
+  if (j != 7) printf(", ");
+  r += 4;
+ }
+ printf("\n");
+}
+printf("PHPCRU Dump:\n");
+for (r = PHP_CRU_BASE; r  < (PHP_CRU_BASE + 0x1000);) {
+ printf("0x%04X:", r);
+ for (j = 0; j < 8; j++) {
+  printf(" 0x%08X", CCU_READ4(sc, r));
+  if (j != 7) printf(", ");
+  r += 4;
+ }
+ printf("\n");
+}
+#endif
 
 	return (0);
 }
