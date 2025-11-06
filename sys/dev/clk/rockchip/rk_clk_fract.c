@@ -53,6 +53,7 @@ static int rk_clk_fract_recalc(struct clknode *clk, uint64_t *req);
 static int rk_clk_fract_set_freq(struct clknode *clknode, uint64_t fin,
     uint64_t *fout, int flag, int *stop);
 static int rk_clk_fract_set_gate(struct clknode *clk, bool enable);
+static int rk_clk_fract_get_gate(struct clknode *clk, bool *enabled);
 
 struct rk_clk_fract_sc {
 	uint32_t	flags;
@@ -66,6 +67,7 @@ struct rk_clk_fract_sc {
 static clknode_method_t rk_clk_fract_methods[] = {
 	/* Device interface */
 	CLKNODEMETHOD(clknode_init,		rk_clk_fract_init),
+	CLKNODEMETHOD(clknode_get_gate,		rk_clk_fract_get_gate),
 	CLKNODEMETHOD(clknode_set_gate,		rk_clk_fract_set_gate),
 	CLKNODEMETHOD(clknode_recalc_freq,	rk_clk_fract_recalc),
 	CLKNODEMETHOD(clknode_set_freq,		rk_clk_fract_set_freq),
@@ -155,6 +157,26 @@ rk_clk_fract_init(struct clknode *clk, device_t dev)
 }
 
 static int
+rk_clk_fract_get_gate(struct clknode *clk, bool *enabled)
+{
+	struct rk_clk_fract_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->flags & RK_CLK_FRACT_HAVE_GATE) == 0)
+		return (ENXIO);
+
+	DEVICE_LOCK(clk);
+	RD4(clk, sc->gate_offset, &val);
+	DEVICE_UNLOCK(clk);
+
+	*enabled = (val >> sc->gate_shift) & 1;
+
+	return (0);
+}
+
+static int
 rk_clk_fract_set_gate(struct clknode *clk, bool enable)
 {
 	struct rk_clk_fract_sc *sc;
@@ -165,13 +187,13 @@ rk_clk_fract_set_gate(struct clknode *clk, bool enable)
 	if ((sc->flags & RK_CLK_FRACT_HAVE_GATE) == 0)
 		return (0);
 
+	DEVICE_LOCK(clk);
 	RD4(clk, sc->gate_offset, &val);
 
 	val = 0;
 	if (!enable)
 		val |= 1 << sc->gate_shift;
 	val |= (1 << sc->gate_shift) << RK_CLK_FRACT_MASK_SHIFT;
-	DEVICE_LOCK(clk);
 	WR4(clk, sc->gate_offset, val);
 	DEVICE_UNLOCK(clk);
 

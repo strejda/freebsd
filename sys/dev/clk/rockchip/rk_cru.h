@@ -214,6 +214,7 @@ struct rk_cru_gate {
 	uint32_t	id;
 	uint32_t	offset;
 	uint32_t	shift;
+	uint32_t	flags;
 };
 
 enum rk_clk_type {
@@ -242,6 +243,13 @@ struct rk_clk {
 	} clk;
 };
 
+struct rk_reset_table {
+	int		id;
+	uint32_t	reg;
+	int		bit;
+};
+
+
 struct rk_cru_softc {
 	device_t		dev;
 	struct resource		*res;
@@ -250,6 +258,7 @@ struct rk_cru_softc {
 	int			type;
 	uint32_t		reset_offset;
 	uint32_t		reset_num;
+	struct 	rk_reset_table	*reset_table;
 	struct rk_cru_gate	*gates;
 	int			ngates;
 	struct rk_clk		*clks;
