@@ -79,7 +79,7 @@
 
 #include "mmcbr_if.h"
 
-#ifdef DEBUG
+#if 0
 #define dprintf(fmt, args...) printf(fmt, ##args)
 #else
 #define dprintf(x, arg...)
@@ -517,6 +517,15 @@ parse_fdt(struct dwmmc_softc *sc)
 	sc->host.caps = MMC_CAP_HSPEED | MMC_CAP_SIGNALING_330;
 	mmc_fdt_parse(sc->dev, node, &sc->mmc_helper, &sc->host);
 
+#ifndef MMCCAM
+	if (sc->mmc_helper.props & MMC_PROP_NO_SD &&
+		    sc->mmc_helper.props & MMC_PROP_NO_MMC) {
+		device_printf(sc->dev,
+		    "controller only supports not yet implemented SDIO mode\n");
+		return(ENOTSUP);
+	}
+#endif
+
 	/* fifo-depth */
 	if ((len = OF_getproplen(node, "fifo-depth")) > 0) {
 		OF_getencprop(node, "fifo-depth", dts_value, len);
@@ -539,9 +548,7 @@ parse_fdt(struct dwmmc_softc *sc)
 
 	/* IP block reset is optional */
 	error = hwreset_get_by_ofw_name(sc->dev, 0, "reset", &sc->hwreset);
-	if (error != 0 &&
-	    error != ENOENT &&
-	    error != ENODEV) {
+	if (error != 0 && error != ENOENT) {
 		device_printf(sc->dev, "Cannot get reset\n");
 		goto fail;
 	}
@@ -549,9 +556,7 @@ parse_fdt(struct dwmmc_softc *sc)
 	/* vmmc regulator is optional */
 	error = regulator_get_by_ofw_property(sc->dev, 0, "vmmc-supply",
 	     &sc->vmmc);
-	if (error != 0 &&
-	    error != ENOENT &&
-	    error != ENODEV) {
+	if (error != 0 && error != ENOENT) {
 		device_printf(sc->dev, "Cannot get regulator 'vmmc-supply'\n");
 		goto fail;
 	}
@@ -559,9 +564,7 @@ parse_fdt(struct dwmmc_softc *sc)
 	/* vqmmc regulator is optional */
 	error = regulator_get_by_ofw_property(sc->dev, 0, "vqmmc-supply",
 	     &sc->vqmmc);
-	if (error != 0 &&
-	    error != ENOENT &&
-	    error != ENODEV) {
+	if (error != 0 && error != ENOENT) {
 		device_printf(sc->dev, "Cannot get regulator 'vqmmc-supply'\n");
 		goto fail;
 	}
@@ -577,9 +580,7 @@ parse_fdt(struct dwmmc_softc *sc)
 
 	/* BIU (Bus Interface Unit clock) is optional */
 	error = clk_get_by_ofw_name(sc->dev, 0, "biu", &sc->biu);
-	if (error != 0 &&
-	    error != ENOENT &&
-	    error != ENODEV) {
+	if (error != 0 &&  error != ENOENT ) {
 		device_printf(sc->dev, "Cannot get 'biu' clock\n");
 		goto fail;
 	}
@@ -597,9 +598,7 @@ parse_fdt(struct dwmmc_softc *sc)
 	 * if no clock-frequency property is given
 	 */
 	error = clk_get_by_ofw_name(sc->dev, 0, "ciu", &sc->ciu);
-	if (error != 0 &&
-	    error != ENOENT &&
-	    error != ENODEV) {
+	if (error != 0 && error != ENOENT) {
 		device_printf(sc->dev, "Cannot get 'ciu' clock\n");
 		goto fail;
 	}
@@ -613,10 +612,25 @@ parse_fdt(struct dwmmc_softc *sc)
 		}
 		error = clk_enable(sc->ciu);
 		if (error != 0) {
-			device_printf(sc->dev, "cannot enable ciu clock\n");
+			device_printf(sc->dev, "cannot enable 'ciu' clock\n");
 			goto fail;
 		}
 		clk_get_freq(sc->ciu, &sc->bus_hz);
+	}
+
+	/*
+	  Drive and sampling clocks are used only for tuning and should not be
+	  enabled outside of the tuning procedure.
+	 */
+	error = clk_get_by_ofw_name(sc->dev, 0, "ciu-drive", &sc->ciu_drive);
+	if (error != 0 && error != ENOENT) {
+		device_printf(sc->dev, "Cannot get 'ciu-drive' clock\n");
+		goto fail;
+	}
+	error = clk_get_by_ofw_name(sc->dev, 0, "ciu-sample", &sc->ciu_sample);
+	if (error != 0 && error != ENOENT) {
+		device_printf(sc->dev, "Cannot get 'ciu-sample' clock\n");
+		goto fail;
 	}
 
 	/* Enable regulators */
@@ -787,10 +801,15 @@ dwmmc_detach(device_t dev)
 	if (sc->hwreset != NULL && hwreset_deassert(sc->hwreset) != 0)
 		device_printf(sc->dev, "cannot deassert reset\n");
 	if (sc->biu != NULL && clk_disable(sc->biu) != 0)
-		device_printf(sc->dev, "cannot disable biu clock\n");
+		device_printf(sc->dev, "cannot disable 'biu' clock\n");
 	if (sc->ciu != NULL && clk_disable(sc->ciu) != 0)
-			device_printf(sc->dev, "cannot disable ciu clock\n");
-
+			device_printf(sc->dev, "cannot disable 'ciu' clock\n");
+	if (sc->ciu_drive != NULL && clk_disable(sc->ciu_drive) != 0)
+			device_printf(sc->dev,
+			    "cannot disable 'ciu-drive' clock\n");
+	if (sc->ciu_drive != NULL && clk_disable(sc->ciu_sample) != 0)
+			device_printf(sc->dev,
+			    "cannot disable 'ciu-sample' clock\n");
 	if (sc->vmmc && regulator_disable(sc->vmmc) != 0)
 		device_printf(sc->dev, "Cannot disable vmmc regulator\n");
 	if (sc->vqmmc && regulator_disable(sc->vqmmc) != 0)

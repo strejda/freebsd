@@ -90,6 +90,8 @@ struct dwmmc_softc {
 
 	clk_t			biu;
 	clk_t			ciu;
+	clk_t			ciu_drive;
+	clk_t			ciu_sample;
 	hwreset_t		hwreset;
 	regulator_t		vmmc;
 	regulator_t		vqmmc;
