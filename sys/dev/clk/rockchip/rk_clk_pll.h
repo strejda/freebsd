@@ -57,7 +57,9 @@ struct rk_clk_pll_def {
 	struct rk_clk_pll_rate	*frac_rates;
 };
 
-#define	RK_CLK_PLL_HAVE_GATE	0x1
+#define	RK_CLK_PLL_HAVE_GATE	0x0001
+#define	RK_CLK_PLL_FRACTIONAL	0x0002
+#define	RK_CLK_PLL_DDR		0x0004
 
 int rk3066_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);
 int rk3328_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);

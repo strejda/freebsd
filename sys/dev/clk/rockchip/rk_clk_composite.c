@@ -47,6 +47,9 @@ struct rk_clk_composite_sc {
 	uint32_t	div_width;
 	uint32_t	div_mask;
 
+	uint32_t	gate_offset;
+	uint32_t	gate_shift;
+
 	uint32_t	flags;
 
 	struct syscon	*grf;
@@ -164,6 +167,52 @@ rk_clk_composite_set_mux(struct clknode *clk, int index)
 }
 
 static int
+rk_clk_composite_get_gate(struct clknode *clk, bool *enabled)
+{
+	struct rk_clk_composite_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->flags & RK_CLK_COMPOSITE_HAVE_GATE) == 0)
+		return (ENXIO);
+
+	DEVICE_LOCK(clk);
+	READ4(clk, sc->gate_offset, &val);
+	DEVICE_UNLOCK(clk);
+
+	*enabled = ((val >> sc->gate_shift) & 1) ? false : true;
+
+	return (0);
+}
+
+static int
+rk_clk_composite_set_gate(struct clknode *clk, bool enable)
+{
+	struct rk_clk_composite_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->flags & RK_CLK_COMPOSITE_HAVE_GATE) == 0)
+		return (0);
+
+	DEVICE_LOCK(clk);
+	READ4(clk, sc->gate_offset, &val);
+
+	val = 0;
+	if (!enable)
+		val |= 1 << sc->gate_shift;
+	val |= (1 << sc->gate_shift) << RK_CLK_COMPOSITE_MASK_SHIFT;
+	WRITE4(clk, sc->gate_offset, val);
+	DEVICE_UNLOCK(clk);
+
+	dprintf("Set gate to 0x%08X, reg: 0x%08X\n", val, sc->gate_offset);
+
+	return (0);
+}
+
+static int
 rk_clk_composite_recalc(struct clknode *clk, uint64_t *freq)
 {
 	struct rk_clk_composite_sc *sc;
@@ -172,19 +221,25 @@ rk_clk_composite_recalc(struct clknode *clk, uint64_t *freq)
 	sc = clknode_get_softc(clk);
 
 	DEVICE_LOCK(clk);
-
 	READ4(clk, sc->muxdiv_offset, &reg);
-	dprintf("Read: muxdiv_offset=%x, val=%x\n", sc->muxdiv_offset, reg);
-
 	DEVICE_UNLOCK(clk);
 
 	div = ((reg & sc->div_mask) >> sc->div_shift);
-	if (sc->flags & RK_CLK_COMPOSITE_DIV_EXP)
+	dprintf("Read: offset=%x, reg=%x, div: %d\n",
+	    sc->muxdiv_offset, reg, div);
+
+	if (sc->flags & RK_CLK_COMPOSITE_DIV_HALF) {
+		div = div * 2 + 3;
+		*freq *=  2;
+		*freq /=  div;
+	} else if (sc->flags & RK_CLK_COMPOSITE_DIV_EXP) {
 		div = 1 << div;
-	else
+		*freq = *freq / div;
+	} else {
 		div += 1;
-	dprintf("parent_freq=%ju, div=%u\n", *freq, div);
-	*freq = *freq / div;
+		*freq = *freq / div;
+	}
+
 	dprintf("Final freq=%ju\n", *freq);
 	return (0);
 }
@@ -203,11 +258,17 @@ rk_clk_composite_find_best(struct rk_clk_composite_sc *sc, uint64_t fparent,
 
 	for (div_reg = 0;  div_reg <= ((sc->div_mask >> sc->div_shift) + 1);
 	    div_reg++) {
-		if (sc->flags == RK_CLK_COMPOSITE_DIV_EXP)
+
+		if (sc->flags & RK_CLK_COMPOSITE_DIV_HALF) {
+			cur = (2 * fparent) / (div * 2 + 3);
+		} else if (sc->flags == RK_CLK_COMPOSITE_DIV_EXP) {
 			div = 1 << div_reg;
-		else
+			cur = fparent / div;
+		} else {
 			div = div_reg + 1;
-		cur = fparent / div;
+			cur = fparent / div;
+		}
+
 		if ((freq - cur) < (freq - best)) {
 			best = cur;
 			best_div = div;
@@ -295,6 +356,8 @@ static clknode_method_t rk_clk_composite_clknode_methods[] = {
 	CLKNODEMETHOD(clknode_set_mux,		rk_clk_composite_set_mux),
 	CLKNODEMETHOD(clknode_recalc_freq,	rk_clk_composite_recalc),
 	CLKNODEMETHOD(clknode_set_freq,		rk_clk_composite_set_freq),
+	CLKNODEMETHOD(clknode_set_gate,		rk_clk_composite_set_gate),
+	CLKNODEMETHOD(clknode_get_gate,		rk_clk_composite_get_gate),
 	CLKNODEMETHOD_END
 };
 
@@ -325,6 +388,9 @@ rk_clk_composite_register(struct clkdom *clkdom,
 	sc->div_shift = clkdef->div_shift;
 	sc->div_width = clkdef->div_width;
 	sc->div_mask = ((1 << clkdef->div_width) - 1) << sc->div_shift;
+
+	sc->gate_offset = clkdef->gate_offset;
+	sc->gate_shift = clkdef->gate_shift;
 
 	sc->flags = clkdef->flags;
 
