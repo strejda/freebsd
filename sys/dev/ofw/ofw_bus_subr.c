@@ -313,6 +313,15 @@ ofw_bus_search_compatible(device_t dev, const struct ofw_compat_data *compat)
 	return (compat);
 }
 
+bool
+ofw_bus_is_machine_compatible(const char *onecompat)
+{
+	phandle_t root;
+
+	root = OF_finddevice("/");
+	return (ofw_bus_node_is_compatible(root, onecompat) != 0);
+}
+
 int
 ofw_bus_has_prop(device_t dev, const char *propname)
 {
