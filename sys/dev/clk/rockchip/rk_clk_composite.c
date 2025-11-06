@@ -47,6 +47,9 @@ struct rk_clk_composite_sc {
 	uint32_t	div_width;
 	uint32_t	div_mask;
 
+	uint32_t	gate_offset;
+	uint32_t	gate_shift;
+
 	uint32_t	flags;
 
 	struct syscon	*grf;
@@ -164,27 +167,86 @@ rk_clk_composite_set_mux(struct clknode *clk, int index)
 }
 
 static int
+rk_clk_composite_get_gate(struct clknode *clk, bool *enabled)
+{
+	struct rk_clk_composite_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->flags & RK_CLK_COMPOSITE_HAVE_GATE) == 0)
+		return (ENXIO);
+
+	DEVICE_LOCK(clk);
+	READ4(clk, sc->gate_offset, &val);
+	DEVICE_UNLOCK(clk);
+
+	*enabled = ((val >> sc->gate_shift) & 1) ? false : true;
+
+	return (0);
+}
+
+static int
+rk_clk_composite_set_gate(struct clknode *clk, bool enable)
+{
+	struct rk_clk_composite_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->flags & RK_CLK_COMPOSITE_HAVE_GATE) == 0)
+		return (0);
+
+	DEVICE_LOCK(clk);
+	READ4(clk, sc->gate_offset, &val);
+
+
+	val = 0;
+	if (!enable)
+		val |= 1 << sc->gate_shift;
+	val |= (1 << sc->gate_shift) << RK_CLK_COMPOSITE_MASK_SHIFT;
+	WRITE4(clk, sc->gate_offset, val);
+	DEVICE_UNLOCK(clk);
+
+	dprintf("Set gate to 0x%08X, reg: 0x%08X\n", val, sc->gate_offset);
+
+	return (0);
+}
+
+static int
 rk_clk_composite_recalc(struct clknode *clk, uint64_t *freq)
 {
 	struct rk_clk_composite_sc *sc;
 	uint32_t reg, div;
+ bool	enabled;
+ int	rv;
 
 	sc = clknode_get_softc(clk);
 
 	DEVICE_LOCK(clk);
-
 	READ4(clk, sc->muxdiv_offset, &reg);
-	dprintf("Read: muxdiv_offset=%x, val=%x\n", sc->muxdiv_offset, reg);
-
 	DEVICE_UNLOCK(clk);
 
+
+rv = rk_clk_composite_get_gate(clk, &enabled);
+if (rv != 0) enabled = true;
+
 	div = ((reg & sc->div_mask) >> sc->div_shift);
-	if (sc->flags & RK_CLK_COMPOSITE_DIV_EXP)
-		div = 1 << div;
-	else
-		div += 1;
-	dprintf("parent_freq=%ju, div=%u\n", *freq, div);
-	*freq = *freq / div;
+	dprintf("Read: offset=%x, reg=%x, div: %d, enabled: %d\n",
+	    sc->muxdiv_offset, reg, div, enabled);
+
+	if (sc->flags & RK_CLK_COMPOSITE_DIV_HALF) {
+		div = div * 2 + 3;
+		*freq *=  2;
+		*freq /=  div;
+	} else {
+		if (sc->flags & RK_CLK_COMPOSITE_DIV_EXP)
+			div = 1 << div;
+		else
+			div += 1;
+		*freq = *freq / div;
+	}
+
 	dprintf("Final freq=%ju\n", *freq);
 	return (0);
 }
@@ -203,11 +265,16 @@ rk_clk_composite_find_best(struct rk_clk_composite_sc *sc, uint64_t fparent,
 
 	for (div_reg = 0;  div_reg <= ((sc->div_mask >> sc->div_shift) + 1);
 	    div_reg++) {
-		if (sc->flags == RK_CLK_COMPOSITE_DIV_EXP)
-			div = 1 << div_reg;
-		else
-			div = div_reg + 1;
-		cur = fparent / div;
+
+		if (sc->flags & RK_CLK_COMPOSITE_DIV_HALF) {
+			cur = (2 * fparent) / (div * 2 + 3);
+		} else {
+			if (sc->flags == RK_CLK_COMPOSITE_DIV_EXP)
+				div = 1 << div_reg;
+			else
+				div = div_reg + 1;
+			cur = fparent / div;
+		}
 		if ((freq - cur) < (freq - best)) {
 			best = cur;
 			best_div = div;
@@ -232,6 +299,8 @@ rk_clk_composite_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout,
 
 	sc = clknode_get_softc(clk);
 	dprintf("Finding best parent/div for target freq of %ju\n", *fout);
+
+
 	p_names = clknode_get_parent_names(clk);
 	for (best_div = 0, best = 0, p_idx = 0;
 	     p_idx != clknode_get_parents_num(clk); p_idx++) {
@@ -239,6 +308,7 @@ rk_clk_composite_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout,
 		clknode_get_freq(p_clk, &fparent);
 		dprintf("Testing with parent %s (%d) at freq %ju\n",
 		    clknode_get_name(p_clk), p_idx, fparent);
+
 		div = rk_clk_composite_find_best(sc, fparent, *fout, &div_reg);
 		cur = fparent / div;
 		if ((*fout - cur) < (*fout - best)) {
@@ -295,6 +365,8 @@ static clknode_method_t rk_clk_composite_clknode_methods[] = {
 	CLKNODEMETHOD(clknode_set_mux,		rk_clk_composite_set_mux),
 	CLKNODEMETHOD(clknode_recalc_freq,	rk_clk_composite_recalc),
 	CLKNODEMETHOD(clknode_set_freq,		rk_clk_composite_set_freq),
+	CLKNODEMETHOD(clknode_set_gate,		rk_clk_composite_set_gate),
+	CLKNODEMETHOD(clknode_get_gate,		rk_clk_composite_get_gate),
 	CLKNODEMETHOD_END
 };
 
@@ -325,6 +397,9 @@ rk_clk_composite_register(struct clkdom *clkdom,
 	sc->div_shift = clkdef->div_shift;
 	sc->div_width = clkdef->div_width;
 	sc->div_mask = ((1 << clkdef->div_width) - 1) << sc->div_shift;
+
+	sc->gate_offset = clkdef->gate_offset;
+	sc->gate_shift = clkdef->gate_shift;
 
 	sc->flags = clkdef->flags;
 
