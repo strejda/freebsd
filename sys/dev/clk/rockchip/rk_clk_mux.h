@@ -35,6 +35,8 @@ struct rk_clk_mux_def {
 	uint32_t		offset;
 	uint32_t		shift;
 	uint32_t		width;
+	uint32_t		gate_offset;
+	uint32_t		gate_shift;
 	int			mux_flags;
 };
 
@@ -43,6 +45,7 @@ struct rk_clk_mux_def {
 #define	RK_CLK_MUX_GRF		(1 << 1)
 /* Select the parent with the closest rate, never change a parent rate. */
 #define	RK_CLK_MUX_ROUND_PARENT	(1 << 2)
+#define	RK_CLK_MUX_HAVE_GATE	(1 << 3)
 
 int rk_clk_mux_register(struct clkdom *clkdom, struct rk_clk_mux_def *clkdef);
 
