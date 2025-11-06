@@ -405,14 +405,22 @@ regfix_parse_fdt(struct regfix_softc * sc)
 	if (OF_hasprop(node, "gpio-open-drain"))
 		sc->init_def.gpio_open_drain = true;
 
-	if (!OF_hasprop(node, "gpio"))
-		return (0);
-	rv = ofw_bus_parse_xref_list_alloc(node, "gpio", "#gpio-cells", 0,
-	    &sc->gpio_prodxref, &sc->gpio_ncells, &sc->gpio_cells);
-	if (rv != 0) {
-		sc->gpio_prodxref = 0;
-		device_printf(sc->dev, "Malformed gpio property\n");
-		return (ENXIO);
+	if (OF_hasprop(node, "gpio")) {
+		rv = ofw_bus_parse_xref_list_alloc(node, "gpio", "#gpio-cells",
+		    0, &sc->gpio_prodxref, &sc->gpio_ncells, &sc->gpio_cells);
+		if (rv != 0) {
+			sc->gpio_prodxref = 0;
+			device_printf(sc->dev, "Malformed gpio property\n");
+			return (ENXIO);
+		}
+	} else if (OF_hasprop(node, "gpios")) {
+		rv = ofw_bus_parse_xref_list_alloc(node, "gpios", "#gpio-cells",
+		0, &sc->gpio_prodxref, &sc->gpio_ncells, &sc->gpio_cells);
+		if (rv != 0) {
+			sc->gpio_prodxref = 0;
+			device_printf(sc->dev, "Malformed gpios property\n");
+			return (ENXIO);
+		}
 	}
 	return (0);
 }
