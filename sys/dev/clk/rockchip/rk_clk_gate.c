@@ -47,8 +47,16 @@
 #define	DEVICE_UNLOCK(_clk)						\
 	CLKDEV_DEVICE_UNLOCK(clknode_get_device(_clk))
 
+#if 0
+#define	dprintf(format, arg...)						\
+	printf("%s:(%s)" format, __func__, clknode_get_name(clk), arg)
+#else
+#define	dprintf(format, arg...)
+#endif
+
 static int rk_clk_gate_init(struct clknode *clk, device_t dev);
 static int rk_clk_gate_set_gate(struct clknode *clk, bool enable);
+static int rk_clk_gate_get_gate(struct clknode *clk, bool *enabled);
 struct rk_clk_gate_sc {
 	uint32_t	offset;
 	uint32_t	shift;
@@ -63,6 +71,7 @@ static clknode_method_t rk_clk_gate_methods[] = {
 	/* Device interface */
 	CLKNODEMETHOD(clknode_init,	rk_clk_gate_init),
 	CLKNODEMETHOD(clknode_set_gate,	rk_clk_gate_set_gate),
+	CLKNODEMETHOD(clknode_get_gate,	rk_clk_gate_get_gate),
 	CLKNODEMETHOD_END
 };
 DEFINE_CLASS_1(rk_clk_gate, rk_clk_gate_class, rk_clk_gate_methods,
@@ -106,9 +115,32 @@ rk_clk_gate_set_gate(struct clknode *clk, bool enable)
 	}
 	RD4(clk, sc->offset, &reg);
 	DEVICE_UNLOCK(clk);
+
+	dprintf("Set gate to 0x%08X, mask 0x%08X, reg: 0x%08X\n",
+	    ((sc->ungated ? sc->on_value : sc->off_value) << sc->shift) |
+	     RK_CLK_GATE_MASK, sc->mask << sc->shift, sc->offset);
+
 	return(0);
 }
 
+
+static int
+rk_clk_gate_get_gate(struct clknode *clk, bool *enabled)
+{
+	uint32_t reg;
+	struct rk_clk_gate_sc *sc;
+	int rv;
+
+	sc = clknode_get_softc(clk);
+	DEVICE_LOCK(clk);
+	rv = RD4(clk, sc->offset, &reg);
+	DEVICE_UNLOCK(clk);
+	if (rv != 0)
+		return (rv);
+	reg = (reg >> sc->shift) & sc->mask;
+	*enabled = reg == sc->on_value;
+	return(0);
+}
 int
 rk_clk_gate_register(struct clkdom *clkdom, struct rk_clk_gate_def *clkdef)
 {
