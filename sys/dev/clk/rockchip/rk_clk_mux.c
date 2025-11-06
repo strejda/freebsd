@@ -53,6 +53,7 @@
 	CLKDEV_DEVICE_LOCK(clknode_get_device(_clk))
 #define	DEVICE_UNLOCK(_clk)						\
 	CLKDEV_DEVICE_UNLOCK(clknode_get_device(_clk))
+#define	RK_CLK_MUX_MASK_SHIFT	16
 
 #if 0
 #define	dprintf(format, arg...)						\
@@ -65,11 +66,15 @@ static int rk_clk_mux_init(struct clknode *clk, device_t dev);
 static int rk_clk_mux_set_mux(struct clknode *clk, int idx);
 static int rk_clk_mux_set_freq(struct clknode *clk, uint64_t fparent,
     uint64_t *fout, int flags, int *stop);
+static int rk_clk_mux_set_gate(struct clknode *clk, bool enable);
+static int rk_clk_mux_get_gate(struct clknode *clk, bool *enabled);
 
 struct rk_clk_mux_sc {
 	uint32_t	offset;
 	uint32_t	shift;
 	uint32_t	mask;
+	uint32_t	gate_offset;
+	uint32_t	gate_shift;
 	int		mux_flags;
 	struct syscon	*grf;
 };
@@ -77,6 +82,8 @@ struct rk_clk_mux_sc {
 static clknode_method_t rk_clk_mux_methods[] = {
 	/* Device interface */
 	CLKNODEMETHOD(clknode_init, 	rk_clk_mux_init),
+	CLKNODEMETHOD(clknode_get_gate,	rk_clk_mux_get_gate),
+	CLKNODEMETHOD(clknode_set_gate,	rk_clk_mux_set_gate),
 	CLKNODEMETHOD(clknode_set_mux, 	rk_clk_mux_set_mux),
 	CLKNODEMETHOD(clknode_set_freq,	rk_clk_mux_set_freq),
 	CLKNODEMETHOD_END
@@ -173,10 +180,6 @@ rk_clk_mux_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout,
 
 	sc = clknode_get_softc(clk);
 
-	if ((sc->mux_flags & RK_CLK_MUX_GRF) != 0) {
-		*stop = 1;
-		return (ENOTSUP);
-	}
 	if ((sc->mux_flags & RK_CLK_MUX_REPARENT) == 0) {
 		*stop = 0;
 		return (0);
@@ -218,6 +221,49 @@ rk_clk_mux_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout,
 	return (0);
 }
 
+static int
+rk_clk_mux_get_gate(struct clknode *clk, bool *enabled)
+{
+	struct rk_clk_mux_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->mux_flags & RK_CLK_MUX_HAVE_GATE) == 0)
+		return (ENXIO);
+
+	DEVICE_LOCK(clk);
+	RD4(clk, sc->gate_offset, &val);
+	DEVICE_UNLOCK(clk);
+
+	*enabled = (val >> sc->gate_shift) & 1;
+
+	return (0);
+}
+
+static int
+rk_clk_mux_set_gate(struct clknode *clk, bool enable)
+{
+	struct rk_clk_mux_sc *sc;
+	uint32_t val = 0;
+
+	sc = clknode_get_softc(clk);
+
+	if ((sc->mux_flags & RK_CLK_MUX_HAVE_GATE) == 0)
+		return (0);
+
+	DEVICE_LOCK(clk);
+	RD4(clk, sc->gate_offset, &val);
+
+	val = 0;
+	if (!enable)
+		val |= 1 << sc->gate_shift;
+	val |= (1 << sc->gate_shift) << RK_CLK_MUX_MASK_SHIFT;
+	WR4(clk, sc->gate_offset, val);
+	DEVICE_UNLOCK(clk);
+
+	return (0);
+}
 int
 rk_clk_mux_register(struct clkdom *clkdom, struct rk_clk_mux_def *clkdef)
 {
@@ -232,6 +278,8 @@ rk_clk_mux_register(struct clkdom *clkdom, struct rk_clk_mux_def *clkdef)
 	sc->offset = clkdef->offset;
 	sc->shift = clkdef->shift;
 	sc->mask =  (1 << clkdef->width) - 1;
+	sc->gate_offset = clkdef->gate_offset;
+	sc->gate_shift = clkdef->gate_shift;
 	sc->mux_flags = clkdef->mux_flags;
 
 	clknode_register(clkdom, clk);
