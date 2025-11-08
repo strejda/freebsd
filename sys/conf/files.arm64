@@ -781,6 +781,9 @@ dev/iicbus/pmic/rockchip/rk8xx_rtc.c		optional fdt rk8xx soc_rockchip
 dev/iicbus/pmic/rockchip/rk805.c		optional fdt rk805 soc_rockchip_rk3328
 dev/iicbus/pmic/rockchip/rk808.c		optional fdt rk808 soc_rockchip_rk3399
 dev/iicbus/pmic/rockchip/rk817.c		optional fdt rk817 soc_rockchip_rk3568
+dev/spibus/pmic/rockchip/rk806.c		optional fdt rk806 soc_rockchip_rk3588
+dev/spibus/pmic/rockchip/rk806_regulators.c	optional fdt rk806 soc_rockchip_rk3588
+dev/spibus/pmic/rockchip/rk806_gpio.c		optional fdt rk806 soc_rockchip_rk3588
 arm64/rockchip/rk_grf.c				optional fdt soc_rockchip
 arm64/rockchip/rk_grf_gpio.c			optional fdt soc_rockchip
 arm64/rockchip/rk_pinctrl.c			optional fdt rk_pinctrl soc_rockchip
