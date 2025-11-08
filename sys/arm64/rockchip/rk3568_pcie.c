@@ -70,6 +70,10 @@
 #define	 DEVICE_TYPE_RC			(1<<6)
 #define	 LINK_REQ_RST_GRT		(1<<3)
 #define	 LTSSM_ENABLE			(1<<2)
+#define PCIE_CLIENT_INTR_STATUS_MISC	0x10
+#define  PCIE_LINK_REQ_RST_NOT_INT	(1<<2)
+#define  PCIE_RDLH_LINK_UP_CHGED	(1<<1)
+
 #define	PCIE_CLIENT_INTR_MASK_MSG_RX	0x0018
 #define	PCIE_CLIENT_INTR_MASK_LEGACY	0x001c
 #define	PCIE_CLIENT_INTR_MASK_ERR	0x0020
@@ -91,14 +95,15 @@ struct rk3568_pcie_softc {
 	struct resource			*apb_res;
 	int				dbi_rid;
 	struct resource			*dbi_res;
-	int				irq_rid;
-	struct resource			*irq_res;
-	void				*irq_handle;
+	int				sys_irq_rid;
+	struct resource			*sys_irq_res;
+	void				*sys_irq_handle;
 	phandle_t			node;
-	struct gpiobus_pin		*reset_gpio;
-	clk_t				aclk_mst, aclk_slv, aclk_dbi, pclk, aux;
+	clk_t				aclk_mst, aclk_slv, aclk_dbi, pclk, aux, pipe;
 	regulator_t			regulator;
-	hwreset_t			hwreset;
+	hwreset_t			rst_pipe;
+	hwreset_t			rst_power;
+	struct gpiobus_pin		*rst_gpio;
 	phy_t				phy;
 };
 
@@ -108,20 +113,13 @@ static struct ofw_compat_data compat_data[] = {
 };
 
 
-static void
-rk3568_intr(void *data)
-{
-	struct rk3568_pcie_softc *sc = data;
-
-	device_printf(sc->dev, "INTERRUPT!!\n");
-}
 
 static int
 rk3568_pcie_get_link(device_t dev, bool *status)
 {
 	struct rk3568_pcie_softc *sc = device_get_softc(dev);
 	uint32_t val;
-	
+
 	val = bus_read_4(sc->apb_res, PCIE_CLIENT_LTSSM_STATUS);
 	if (((val & (RDLH_LINK_UP | SMLH_LINK_UP)) ==
 	    (RDLH_LINK_UP | SMLH_LINK_UP)) &&
@@ -132,6 +130,24 @@ rk3568_pcie_get_link(device_t dev, bool *status)
 	return (0);
 }
 
+
+static void
+rk3568_sys_intr(void *data)
+{
+	struct rk3568_pcie_softc *sc = data;
+	bool status;
+	int val;
+
+	val = bus_read_4(sc->apb_res, PCIE_CLIENT_INTR_STATUS_MISC),
+	bus_write_4(sc->apb_res, PCIE_CLIENT_INTR_STATUS_MISC, val);
+
+	if (val & PCIE_RDLH_LINK_UP_CHGED) {
+		rk3568_pcie_get_link(sc->dev, &status);
+		if (status)
+			BUS_RESCAN(sc->dev);
+	}
+}
+
 static int
 rk3568_pcie_init_soc(device_t dev)
 {
@@ -140,27 +156,42 @@ rk3568_pcie_init_soc(device_t dev)
 	bool status;
 
 	/* Assert PCIe reset */
-	if (sc->reset_gpio != NULL) {
-		if (gpio_pin_setflags(sc->reset_gpio, GPIO_PIN_OUTPUT)) {
-			device_printf(dev, "Could not setup PCIe reset\n");
+	if (sc->rst_gpio != NULL) {
+		err = gpio_pin_setflags(sc->rst_gpio, GPIO_PIN_OUTPUT);
+		if (err != 0) {
+			device_printf(dev, "Could not setup PCIe reset: %d\n",
+			    err);
 			return (ENXIO);
 		}
-		if (gpio_pin_set_active(sc->reset_gpio, true)) {
-			device_printf(dev, "Could not set PCIe reset\n");
+		err = gpio_pin_set_active(sc->rst_gpio, true);
+		if (err != 0) {
+			device_printf(dev, "Could not set PCIe reset: %d\n",
+			    err);
 			return (ENXIO);
 		}
 	}
 
 	/* Assert reset */
-	if (hwreset_assert(sc->hwreset)) {
-		device_printf(dev, "Could not assert reset\n");
+	err = hwreset_assert(sc->rst_pipe);
+	if (err != 0) {
+		device_printf(dev, "Could not assert 'pipe' reset: %d\n", err);
 		return (ENXIO);
+	}
+	if (sc->rst_power != NULL) {
+		err = hwreset_assert(sc->rst_power);
+		if (err != 0) {
+			device_printf(dev,
+			    "Could not assert 'power' reset: %d\n", err);
+			return (ENXIO);
+		}
 	}
 
 	/* Powerup PCIe */
 	if (sc->regulator != NULL) {
-		if (regulator_enable(sc->regulator)) {
-			device_printf(dev, "Cannot enable regulator\n");
+		err = regulator_enable(sc->regulator);
+		if (err != 0) {
+			device_printf(dev, "Cannot enable regulator: %d\n",
+			    err);
 			return (ENXIO);
 		}
 	}
@@ -171,32 +202,60 @@ rk3568_pcie_init_soc(device_t dev)
 		return (ENXIO);
 	}
 
+
+	/* Enable clocks */
+	err = clk_enable(sc->aclk_mst);
+	if (err != 0) {
+		device_printf(dev, "Could not enable 'aclk_mst' clk: %d\n",
+		    err);
+		return (ENXIO);
+	}
+	err = clk_enable(sc->aclk_slv);
+	if (err != 0) {
+		device_printf(dev, "Could not enable 'aclk_slv' clk: %d\n",
+		    err);
+		return (ENXIO);
+	}
+	err = clk_enable(sc->aclk_dbi);
+	if (err != 0) {
+		device_printf(dev, "Could not enable 'aclk_dbi' clk; %d\n",
+		    err);
+		return (ENXIO);
+	}
+	err = clk_enable(sc->pclk);
+	if (err != 0) {
+		device_printf(dev, "Could not enable 'pclk' clk: %d\n", err);
+		return (ENXIO);
+	}
+	err = clk_enable(sc->aux);
+	if (err != 0) {
+		device_printf(dev, "Could not enable 'aux' clk: %d\n", err);
+		return (ENXIO);
+	}
+	if (sc->pipe != NULL) {
+		err = clk_enable(sc->pipe);
+		if (err != 0) {
+			device_printf(dev, "Could not enable 'pipe' clk: %d\n",
+			    err);
+			return (ENXIO);
+		}
+	}
+
 	/* Deassert reset */
-	if (hwreset_deassert(sc->hwreset)) {
-		device_printf(dev, "Could not deassert reset\n");
+	err = hwreset_deassert(sc->rst_pipe);
+	if (err != 0) {
+		device_printf(dev, "Could not deassert 'pipe' reset: %d\n",
+		    err);
 		return (ENXIO);
 	}
 
-	/* Enable clocks */
-	if ((err = clk_enable(sc->aclk_mst))) {
-		device_printf(dev, "Could not enable aclk_mst clk\n");
-		return (ENXIO);
-	}
-	if ((err = clk_enable(sc->aclk_slv))) {
-		device_printf(dev, "Could not enable aclk_slv clk\n");
-		return (ENXIO);
-	}
-	if ((err = clk_enable(sc->aclk_dbi))) {
-		device_printf(dev, "Could not enable aclk_dbi clk\n");
-		return (ENXIO);
-	}
-	if ((err = clk_enable(sc->pclk))) {
-		device_printf(dev, "Could not enable pclk clk\n");
-		return (ENXIO);
-	}
-	if ((err = clk_enable(sc->aux))) {
-		device_printf(dev, "Could not enable aux clk\n");
-		return (ENXIO);
+	if (sc->rst_power != NULL) {
+		err = hwreset_deassert(sc->rst_power);
+		if (err != 0) {
+			device_printf(dev,
+			    "Could not deassert 'power' reset: %d\n", err);
+			return (ENXIO);
+		}
 	}
 
 	/* Set Root Complex (RC) mode */
@@ -205,9 +264,12 @@ rk3568_pcie_init_soc(device_t dev)
 	bus_write_4(sc->apb_res, PCIE_CLIENT_GENERAL_CON,
 	    (DEVICE_TYPE_MASK << 16) | DEVICE_TYPE_RC);
 
-	/* Deassert PCIe reset */
-	if ((err = gpio_pin_set_active(sc->reset_gpio, false)))
-		device_printf(dev, "reset_gpio set failed\n");
+	/* Deassert PCIe bus  reset */
+	err = gpio_pin_set_active(sc->rst_gpio, false);
+	if (err != 0) {
+		device_printf(dev, "'reset_gpio' set failed: %d\n", err);
+		return (ENXIO);
+	}
 
 	/* Start Link Training and Status State Machine (LTSSM) */
 	bus_write_4(sc->apb_res, PCIE_CLIENT_GENERAL_CON,
@@ -216,9 +278,11 @@ rk3568_pcie_init_soc(device_t dev)
 	DELAY(100000);
 
 	/* Release PCIe reset */
-	if (sc->reset_gpio != NULL) {
-		if (gpio_pin_set_active(sc->reset_gpio, true)) {
-			device_printf(dev, "Could not release PCIe reset");
+	if (sc->rst_gpio != NULL) {
+		err = gpio_pin_set_active(sc->rst_gpio, true);
+		if (err != 0) {
+			device_printf(dev, "Could not release PCIe reset: %d",
+			    err);
 			return (ENXIO);
 		}
 	}
@@ -229,18 +293,19 @@ rk3568_pcie_init_soc(device_t dev)
 		if (status)
 			break;
 		DELAY(100000);
-		if (count == 0) {
-			device_printf(dev, "Link up timeout!\n");
-			return (ENXIO);
-		}
 	}
 
-	if ((err = pci_dw_init(dev)))
+	if (count <= 0)
+		device_printf(dev, "Link up timeout, continuing...\n");
+
+	err = pci_dw_init(dev);
+	if (err != 0)
 		return (ENXIO);
 
 	/* Delay to have things settle */
 	DELAY(100000);
 
+#if 0
 	/* Enable all MSG interrupts */
 	bus_write_4(sc->apb_res, PCIE_CLIENT_INTR_MASK_MSG_RX, 0x7fff0000);
 
@@ -249,7 +314,11 @@ rk3568_pcie_init_soc(device_t dev)
 
 	/* Enable all Error interrupts */
 	bus_write_4(sc->apb_res, PCIE_CLIENT_INTR_MASK_ERR, 0x0fff0000);
+#endif
 
+	/* Enable link status interrupt */
+	bus_write_4(sc->apb_res, PCIE_CLIENT_INTR_MASK_MISC,
+	    PCIE_RDLH_LINK_UP_CHGED << 16 | PCIE_RDLH_LINK_UP_CHGED);
 	return (0);
 }
 
@@ -259,8 +328,8 @@ rk3568_pcie_detach(device_t dev)
 	struct rk3568_pcie_softc *sc = device_get_softc(dev);
 
 	/* Release allocated resources */
-	if (sc->irq_handle)
-		bus_teardown_intr(dev, sc->irq_res, sc->irq_handle);
+	if (sc->sys_irq_handle)
+		bus_teardown_intr(dev, sc->sys_irq_res, sc->sys_irq_handle);
 	if (sc->phy)
 		phy_release(sc->phy);
 	if (sc->aux)
@@ -273,13 +342,15 @@ rk3568_pcie_detach(device_t dev)
 		clk_release(sc->aclk_slv);
 	if (sc->aclk_mst)
 		clk_release(sc->aclk_mst);
-	if (sc->hwreset)
-		hwreset_release(sc->hwreset);
+	if (sc->rst_power)
+		hwreset_release(sc->rst_power);
+	if (sc->rst_pipe)
+		hwreset_release(sc->rst_pipe);
 	if (sc->regulator)
 		regulator_release(sc->regulator);
-	if (sc->irq_res)
-		bus_release_resource(dev, SYS_RES_IRQ, sc->irq_rid,
-		    sc->irq_res);
+	if (sc->sys_irq_res)
+		bus_release_resource(dev, SYS_RES_IRQ, sc->sys_irq_rid,
+		    sc->sys_irq_res);
 	if (sc->dbi_res)
 		bus_release_resource(dev, SYS_RES_MEMORY, sc->dbi_rid,
 		    sc->dbi_res);
@@ -293,96 +364,136 @@ static int
 rk3568_pcie_attach(device_t dev)
 {
 	struct rk3568_pcie_softc *sc = device_get_softc(dev);
-	int error;
+	int err;
 
 	sc->dev = dev;
 	sc->node = ofw_bus_get_node(dev);
 
 	/* Setup resources */
-	if ((error = ofw_bus_find_string_index(sc->node, "reg-names", "apb",
-	    &sc->apb_rid))) {
-		device_printf(dev, "Cannot get APB memory: %d\n", error);
+	err = ofw_bus_find_string_index(sc->node, "reg-names", "apb",
+	    &sc->apb_rid);
+	if (err != 0) {
+		device_printf(dev, "Cannot get APB memory: %d\n", err);
 		goto fail;
 	}
-	if (!(sc->apb_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
-	    &sc->apb_rid, RF_ACTIVE))) {
+
+	sc->apb_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
+	    &sc->apb_rid, RF_ACTIVE);
+	if (sc->apb_res == NULL) {
 		device_printf(dev, "Cannot allocate APB resource\n");
 		goto fail;
 	}
-	if ((error = ofw_bus_find_string_index(sc->node, "reg-names", "dbi",
-	    &sc->dbi_rid))) {
-		device_printf(dev, "Cannot get DBI memory: %d\n", error);
+
+	err = ofw_bus_find_string_index(sc->node, "reg-names", "dbi",
+	    &sc->dbi_rid);
+	if (err != 0) {
+		device_printf(dev, "Cannot get DBI memory: %d\n", err);
 		goto fail;
 	}
-	if (!(sc->dw_sc.dbi_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
-	    &sc->dbi_rid, RF_ACTIVE))) {
+
+	err = ofw_bus_find_string_index(sc->node, "reg-names", "dbi",
+	    &sc->dbi_rid);
+	if (err != 0) {
+		device_printf(dev, "Cannot get DBI memory: %d\n", err);
+		goto fail;
+	}
+
+	sc->dw_sc.dbi_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
+	    &sc->dbi_rid, RF_ACTIVE);
+	if (sc->dw_sc.dbi_res == NULL) {
 		device_printf(dev, "Cannot allocate DBI resource\n");
 		goto fail;
 	}
 
-	if (!(sc->irq_res = bus_alloc_resource_any(dev, SYS_RES_IRQ,
-	    &sc->irq_rid, RF_ACTIVE | RF_SHAREABLE))) {
-		device_printf(dev, "Cannot allocate IRQ resource\n");
+	err = ofw_bus_find_string_index(sc->node, "interrupt-names", "sys",
+	    &sc->sys_irq_rid);
+	if (err != 0) {
+		device_printf(dev, "Cannot get SYS interrupt %d\n", err);
+		goto fail;
+	}
+	sc->sys_irq_res = bus_alloc_resource_any(dev, SYS_RES_IRQ,
+	    &sc->sys_irq_rid, RF_ACTIVE | RF_SHAREABLE);
+	 if (sc->sys_irq_res == NULL) {
+		device_printf(dev, "Cannot allocate SYS IRQ resource\n");
 		goto fail;
 	}
 
 	/* Get regulator if present */
-	error = regulator_get_by_ofw_property(dev, 0, "vpcie3v3-supply",
+	err = regulator_get_by_ofw_property(dev, 0, "vpcie3v3-supply",
 	    &sc->regulator);
-	if (error != 0 && error != ENOENT) {
-		device_printf(dev, "Cannot get regulator\n");
+	if (err != 0 && err != ENOENT) {
+		device_printf(dev, "Cannot get regulator: %d\n", err);
 		goto fail;
 	}
 
 	/* Get reset */
-	if (hwreset_get_by_ofw_name(dev, 0, "pipe", &sc->hwreset)) {
-		device_printf(dev, "Can not get reset\n");
+	err = hwreset_get_by_ofw_name(dev, 0, "pipe", &sc->rst_pipe);
+	if (err != 0) {
+		device_printf(dev, "Cannot get reset 'pipe': %d\n", err);
+		goto fail;
+	}
+	err = hwreset_get_by_ofw_name(dev, 0, "pwr", &sc->rst_power);
+	if (err != 0 && err != ENOENT) {
+		device_printf(dev, "Cannot get reset 'pwr': %d\n", err);
 		goto fail;
 	}
 
 	/* Get GPIO reset */
-	error = gpio_pin_get_by_ofw_property(dev, sc->node, "reset-gpios",
-		    &sc->reset_gpio);
-	if (error != 0 && error != ENOENT) {
-		device_printf(dev, "Cannot get reset-gpios\n");
+	err = gpio_pin_get_by_ofw_property(dev, sc->node, "reset-gpios",
+		    &sc->rst_gpio);
+	if (err != 0 && err != ENOENT) {
+		device_printf(dev, "Cannot get reset-gpios: %d\n", err);
 		goto fail;
 	}
 
 	/* Get clocks */
-	if (clk_get_by_ofw_name(dev, 0, "aclk_mst", &sc->aclk_mst)) {
-		device_printf(dev, "Can not get aclk_mst clk\n");
+	err = clk_get_by_ofw_name(dev, 0, "aclk_mst", &sc->aclk_mst);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'aclk_mst' clk: %d\n", err);
 		goto fail;
 	}
-	if (clk_get_by_ofw_name(dev, 0, "aclk_slv", &sc->aclk_slv)) {
-		device_printf(dev, "Can not get aclk_slv clk\n");
+	err = clk_get_by_ofw_name(dev, 0, "aclk_slv", &sc->aclk_slv);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'aclk_slv' clk: %d\n", err);
 		goto fail;
 	}
-	if (clk_get_by_ofw_name(dev, 0, "aclk_dbi", &sc->aclk_dbi)) {
-		device_printf(dev, "Can not get aclk_dbi clk\n");
+	err = clk_get_by_ofw_name(dev, 0, "aclk_dbi", &sc->aclk_dbi);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'aclk_dbi' clk: %d\n", err);
 		goto fail;
 	}
-	if (clk_get_by_ofw_name(dev, 0, "pclk", &sc->pclk)) {
-		device_printf(dev, "Can not get pclk clk\n");
+	err = clk_get_by_ofw_name(dev, 0, "pclk", &sc->pclk);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'pclk' clk: %d\n", err);
 		goto fail;
 	}
-	if (clk_get_by_ofw_name(dev, 0, "aux", &sc->aux)) {
-		device_printf(dev, "Can not get aux clk\n");
+	err = clk_get_by_ofw_name(dev, 0, "aux", &sc->aux);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'aux' clk: %d\n", err);
+		goto fail;
+	}
+	err = clk_get_by_ofw_name(dev, 0, "pipe", &sc->pipe);
+	if (err != 0 && err != ENOENT) {
+		device_printf(dev, "Cannot get 'pipe' clk: %d\n", err);
 		goto fail;
 	}
 
 	/* Get PHY */
-	if (phy_get_by_ofw_name(dev, 0, "pcie-phy", &sc->phy)) {
-		device_printf(dev, "Cannot get 'pcie-phy'\n");
+	err = phy_get_by_ofw_name(dev, 0, "pcie-phy", &sc->phy);
+	if (err != 0) {
+		device_printf(dev, "Cannot get 'pcie-phy' phy: %d\n", err);
 		goto fail;
 	}
 
-	if ((error = rk3568_pcie_init_soc(dev)))
+	err = rk3568_pcie_init_soc(dev);
+	if (err != 0)
 		goto fail;
 
-	/* Enable interrupt */
-	if ((bus_setup_intr(dev, sc->irq_res, INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, rk3568_intr, sc, &sc->irq_handle))) {
-		device_printf(dev, "unable to setup interrupt\n");
+	/* Enable SYS interrupt */
+	err = bus_setup_intr(dev, sc->sys_irq_res, INTR_TYPE_MISC | INTR_MPSAFE,
+	    NULL, rk3568_sys_intr, sc, &sc->sys_irq_handle);
+	if (err != 0) {
+		device_printf(dev, "Unable to setup interrupt: %d\n", err);
 		goto fail;
 	}
 
