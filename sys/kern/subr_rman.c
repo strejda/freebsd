@@ -588,6 +588,7 @@ rman_reserve_resource(struct rman *rm, rman_res_t start, rman_res_t end,
 	if ((flags & RF_SHAREABLE) == 0)
 		goto out;
 
+	DPRINTF("!!!!!!!!!!!!!no unshared regions found 1\n");
 	for (s = r; s && s->r_end <= end; s = TAILQ_NEXT(s, r_link)) {
 		if (SHARE_TYPE(s->r_flags) == SHARE_TYPE(flags) &&
 		    s->r_start >= start &&
@@ -622,6 +623,15 @@ rman_reserve_resource(struct rman *rm, rman_res_t start, rman_res_t end,
 	/*
 	 * We couldn't find anything.
 	 */
+	DPRINTF("!!!!!!!!!!!!!no unshared regions found 2\n");
+	rv = int_alloc_resource(M_NOWAIT);
+	if (rv == NULL)
+		goto out;
+	rv->r_start = start;
+	rv->r_end =  start + count - 1;
+	rv->r_flags = flags;
+	rv->r_dev = dev;
+	rv->r_rm = rm;
 
 out:
 	mtx_unlock(&rm->rm_mtx);
