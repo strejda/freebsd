@@ -772,3 +772,231 @@ rk3399_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef)
 
 	return (0);
 }
+
+
+#define	RK3588_PLLCON(_sc, i)			\
+    ((_sc)->base_offset +(i * 0x4))
+
+#define RK3588_PLLCON_0_M_MASK		0x3FF
+#define RK3588_PLLCON_0_M_SHIFT		0
+#define RK3588_PLLCON_0_BYPASS		(1 << 15)
+
+
+#define RK3588_PLLCON_1_P_MASK		0x3F
+#define RK3588_PLLCON_1_P_SHIFT		0
+
+#define RK3588_PLLCON_1_S_MASK		0x7
+#define RK3588_PLLCON_1_S_SHIFT		6
+#define RK3588_PLLCON_1_RESET		(1 << 13)
+
+#define RK3588_PLLCON_2_K_MASK		0xFFFF
+#define RK3588_PLLCON_2_K_SHIFT		0
+
+#define RK3588_PLLCON_6_LOCK		(1 << 15)
+
+#define	RK3588_CLK_PLL_WRITE_MASK	0xFFFF0000
+
+static int
+rk3588_clk_pll_init(struct clknode *clk, device_t dev)
+{
+	clknode_init_parent_idx(clk, 0);
+
+	return (0);
+}
+
+static int
+rk3588_clk_pll_recalc(struct clknode *clk, uint64_t *freq)
+{
+	struct rk_clk_pll_sc *sc;
+	uint32_t con0, con1, con2;
+	uint32_t m, s, p;
+	int16_t k;
+	uint64_t tmp;
+	int64_t ftmp;
+	sc = clknode_get_softc(clk);
+
+	DEVICE_LOCK(clk);
+	READ4(clk, RK3588_PLLCON(sc, 0), &con0);
+	READ4(clk, RK3588_PLLCON(sc, 1), &con1);
+	READ4(clk, RK3588_PLLCON(sc, 2), &con2);
+	DEVICE_UNLOCK(clk);
+
+	/* parse PLL fields */
+	m = (con0 >> RK3588_PLLCON_0_M_SHIFT) & RK3588_PLLCON_0_M_MASK;
+	p = (con1 >> RK3588_PLLCON_1_P_SHIFT) & RK3588_PLLCON_1_P_MASK;
+	s = (con1 >> RK3588_PLLCON_1_S_SHIFT) & RK3588_PLLCON_1_S_MASK;
+	k = (con2 >> RK3588_PLLCON_2_K_SHIFT) & RK3588_PLLCON_2_K_MASK;
+
+	dprintf("con: %x, %x, %x\n", con0, con1, con2);
+	dprintf("m: %x, p: %x, k: %x, s: %x\n", m, p, k, s);
+	dprintf("parent freq=%ju\n", *freq);
+
+	if (con0 & RK3588_PLLCON_0_BYPASS)
+		return(0);
+
+	if (con1 & RK3588_PLLCON_1_RESET) {
+		*freq = 0;
+		return(0); /* ?? or ENXIO */
+	}
+
+	tmp = *freq;
+	tmp *= m;
+	tmp /= p;
+
+	/* Fractional part, k is signed */
+	if (k != 0) {
+		ftmp  = *freq;
+		ftmp *= (int64_t)k;
+		ftmp /= p * 65535;
+		tmp += ftmp;
+	}
+	tmp >>= s;
+
+
+	*freq = tmp;
+	dprintf("freq: %ju\n", *freq);
+
+	return (0);
+}
+
+static int
+rk3588_clk_pll_set_freq(struct clknode *clk, uint64_t fparent, uint64_t *fout,
+    int flags, int *stop)
+{
+	struct rk_clk_pll_rate *rates;
+	struct rk_clk_pll_sc *sc;
+	uint32_t reg;
+	uint64_t tmp, ftmp;
+	int timeout;
+
+	sc = clknode_get_softc(clk);
+
+	rates = sc->rates;
+	for (; rates->freq; rates++) {
+		if ((rates->k != 0) && (sc-> flags & RK_CLK_PLL_FRACTIONAL) == 0)
+			continue;
+		if (rates->freq == *fout)
+			break;
+
+	}
+
+	if (rates->freq == 0) {
+		*stop = 1;
+		return (EINVAL);
+	}
+
+	dprintf("Selected rate: %u MHz, m: %x, p: %x, k: %x, s: %x\n",
+	   rates->freq, rates->m, rates->p, rates->k, rates->s);
+
+	DEVICE_LOCK(clk);
+
+	/* Set to bypass during frequency change */
+	reg = RK3588_PLLCON_0_BYPASS;
+	reg |= RK3588_PLLCON_0_BYPASS << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 0), reg);
+
+
+	/* Set m */
+	reg = rates->m << RK3588_PLLCON_0_M_SHIFT;
+	reg |= RK3588_PLLCON_0_M_MASK << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 0), reg);
+
+	/* Set p, s */
+	reg = rates->p << RK3588_PLLCON_1_P_SHIFT;
+	reg |= RK3588_PLLCON_1_P_MASK << RK_CLK_PLL_MASK_SHIFT;
+	reg |= rates->s << RK3588_PLLCON_1_S_SHIFT;
+	reg |= RK3588_PLLCON_1_S_MASK << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 1), reg);
+
+	/* Set k */
+	reg = rates->k << RK3588_PLLCON_2_K_SHIFT;
+	reg |= RK3588_PLLCON_2_K_MASK << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 2), reg);
+
+
+	/* Unreset PLL core */
+	reg = 0;
+	reg |= RK3588_PLLCON_1_RESET << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 1), reg);
+
+	/* Wait for lock */
+	for (timeout = 1000; timeout > 0; timeout--) {
+		READ4(clk,  RK3588_PLLCON(sc, 6), &reg);
+		if ((reg & RK3588_PLLCON_6_LOCK) != 0)
+			break;
+		DELAY(1);
+	}
+
+	if (timeout <= 0) {
+		/* Reset PLL */
+		reg = RK3588_PLLCON_1_RESET;
+		reg |= RK3588_PLLCON_1_RESET << RK_CLK_PLL_MASK_SHIFT;
+		WRITE4(clk, RK3588_PLLCON(sc, 1), reg);
+		DEVICE_UNLOCK(clk);
+
+		device_printf(clknode_get_device(clk), "%s: PLL lock timeout\n",
+		    clknode_get_name(clk));
+		*fout = 0;
+		*stop = 1;
+		return (ETIMEDOUT);
+	}
+
+	/* Set back to normal mode */
+	reg = 0;
+	reg |= RK3588_PLLCON_0_BYPASS << RK_CLK_PLL_MASK_SHIFT;
+	WRITE4(clk, RK3588_PLLCON(sc, 0), reg);
+
+	DEVICE_UNLOCK(clk);
+
+	tmp = fparent;
+	tmp *= rates->m;
+	tmp /=rates->p;
+
+	/* Fractional part, p is signed */
+	if (rates->k != 0) {
+		ftmp  = fparent;
+		ftmp *= rates->k;
+		ftmp /= rates->p * 65535;
+		tmp += ftmp;
+	}
+	tmp >>= rates->s;
+
+	*fout = tmp;
+	*stop = 1;
+	return (0);
+}
+
+static clknode_method_t rk3588_clk_pll_clknode_methods[] = {
+	/* Device interface */
+	CLKNODEMETHOD(clknode_init,		rk3588_clk_pll_init),
+	CLKNODEMETHOD(clknode_set_gate,		rk_clk_pll_set_gate),
+	CLKNODEMETHOD(clknode_recalc_freq,	rk3588_clk_pll_recalc),
+	CLKNODEMETHOD(clknode_set_freq,		rk3588_clk_pll_set_freq),
+	CLKNODEMETHOD_END
+};
+
+DEFINE_CLASS_1(rk3588_clk_pll_clknode, rk3588_clk_pll_clknode_class,
+    rk3588_clk_pll_clknode_methods, sizeof(struct rk_clk_pll_sc), clknode_class);
+
+int
+rk3588_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef)
+{
+	struct clknode *clk;
+	struct rk_clk_pll_sc *sc;
+
+	clk = clknode_create(clkdom, &rk3588_clk_pll_clknode_class,
+	    &clkdef->clkdef);
+	if (clk == NULL)
+		return (1);
+
+	sc = clknode_get_softc(clk);
+
+	sc->base_offset = clkdef->base_offset;
+	sc->mode_reg = clkdef->mode_reg;
+	sc->mode_shift = clkdef->mode_shift;
+	sc->flags = clkdef->flags;
+	sc->rates = clkdef->rates;
+	clknode_register(clkdom, clk);
+
+	return (0);
+}
