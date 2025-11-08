@@ -31,14 +31,25 @@
 #include <dev/clk/clk.h>
 
 struct rk_clk_pll_rate {
-	uint32_t	freq;
-	uint32_t	refdiv;
-	uint32_t	fbdiv;
-	uint32_t	postdiv1;
-	uint32_t	postdiv2;
-	uint32_t	dsmpd;
-	uint32_t	frac;
-	uint32_t	bwadj;
+	uint32_t			freq;
+	union {
+		struct {
+			uint32_t	refdiv;
+			uint32_t	fbdiv;
+			uint32_t	postdiv1;
+			uint32_t	postdiv2;
+			uint32_t	dsmpd;
+			uint32_t	frac;
+			uint32_t	bwadj;
+		};
+		/* RK3588 */
+		struct {
+			uint32_t	m;
+			uint32_t	p;
+			uint32_t	s;
+			uint32_t	k;
+		};
+	};
 };
 
 struct rk_clk_pll_def {
@@ -64,5 +75,6 @@ struct rk_clk_pll_def {
 int rk3066_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);
 int rk3328_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);
 int rk3399_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);
+int rk3588_clk_pll_register(struct clkdom *clkdom, struct rk_clk_pll_def *clkdef);
 
 #endif /* _RK_CLK_PLL_H_ */
