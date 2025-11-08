@@ -315,7 +315,8 @@ rk_gpio_attach(device_t dev)
 	 * RK3328 and RK3399 doesn't have. So choose the
 	 * version based on parent's compat string.
 	 */
-	if (ofw_bus_node_is_compatible(parent_node, "rockchip,rk3568-pinctrl"))
+	if (ofw_bus_node_is_compatible(parent_node, "rockchip,rk3568-pinctrl") ||
+	    ofw_bus_node_is_compatible(parent_node, "rockchip,rk3588-pinctrl"))
 		sc->version = RK_GPIO_TYPE_V2;
 	else
 		sc->version = RK_GPIO_TYPE_V1;
