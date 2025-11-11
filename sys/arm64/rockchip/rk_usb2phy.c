@@ -79,9 +79,19 @@ struct rk_usb2phy_regs rk3568_regs = {
 	}
 };
 
+struct rk_usb2phy_regs rk3588_regs = {
+	.clk_ctl = {
+		.offset = 0x0000,
+		.enable_mask = 0x10000,
+		/* bit 0 put pll in suspend */
+		.disable_mask = 0x10001,
+	}
+};
+
 static struct ofw_compat_data compat_data[] = {
 	{ "rockchip,rk3399-usb2phy",	(uintptr_t)&rk3399_regs },
 	{ "rockchip,rk3568-usb2phy",	(uintptr_t)&rk3568_regs },
+	{ "rockchip,rk3588-usb2phy",	(uintptr_t)&rk3588_regs },
 	{ NULL,				0 }
 };
 
@@ -344,8 +354,9 @@ rk_usb2phy_attach(device_t dev)
 	struct rk_usb2phy_softc *sc;
 	struct phynode_init_def phy_init;
 	struct phynode *phynode;
-	phandle_t node, host;
+	phandle_t node, port;
 	int err;
+	bool done;
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -381,21 +392,39 @@ rk_usb2phy_attach(device_t dev)
 		return (err);
 
 	/* Only host is supported right now */
+	done = false;
 
-	host = ofw_bus_find_child(node, "host-port");
-	if (host == 0) {
-		device_printf(dev, "Cannot find host-port child node\n");
+	port = ofw_bus_find_child(node, "host-port");
+	if (!done && port != 0) {
+		if (!ofw_bus_node_status_okay(port)) {
+			device_printf(dev, "host-port isn't okay\n");
+			return (ENXIO);
+		}
+
+		regulator_get_by_ofw_property(dev, port, "phy-supply",
+		    &sc->phy_supply);
+		phy_init.id = RK_USBPHY_HOST;
+		phy_init.ofw_node = port;
+		done = true;
+	}
+
+	port = ofw_bus_find_child(node, "otg-port");
+	if (!done && port != 0) {
+		if (!ofw_bus_node_status_okay(port)) {
+			device_printf(dev, "otg-port isn't okay\n");
+			return (ENXIO);
+		}
+
+		phy_init.id = RK_USBPHY_OTG;
+		phy_init.ofw_node = port;
+		done = true;
+	}
+
+	if (!done) {
+		device_printf(dev, "Cannot find port mode child node\n");
 		return (ENXIO);
 	}
 
-	if (!ofw_bus_node_status_okay(host)) {
-		device_printf(dev, "host-port isn't okay\n");
-		return (0);
-	}
-
-	regulator_get_by_ofw_property(dev, host, "phy-supply", &sc->phy_supply);
-	phy_init.id = RK_USBPHY_HOST;
-	phy_init.ofw_node = host;
 	phynode = phynode_create(dev, &rk_usb2phy_phynode_class, &phy_init);
 	if (phynode == NULL) {
 		device_printf(dev, "failed to create host USB2PHY\n");
@@ -406,7 +435,7 @@ rk_usb2phy_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	OF_device_register_xref(OF_xref_from_node(host), dev);
+	OF_device_register_xref(OF_xref_from_node(port), dev);
 
 	return (0);
 }
