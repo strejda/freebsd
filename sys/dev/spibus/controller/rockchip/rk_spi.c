@@ -47,10 +47,22 @@
 
 #include "spibus_if.h"
 
+
+#if 0
+#define	dprintf(fmt, args...)	printf( "%s: "fmt, __func__, ##args)
+#else
+#define	dprintf(fmt, args...)
+#endif
+
 #define	RK_SPI_CTRLR0		0x0000
 #define		CTRLR0_OPM_MASTER	(0 << 20)
+#define		CTRLR0_XFM_MASK		(3 << 18)
 #define		CTRLR0_XFM_TR		(0 << 18)
-#define		CTRLR0_FRF_MOTO		(0 << 16)
+#define		CTRLR0_XFM_TO		(1 << 18)
+#define		CTRLR0_XFM_RO		(2 << 18)
+#define		CTRLR0_FRF_SPI		(0 << 16)
+#define		CTRLR0_FRF_SSP		(1 << 16)
+#define		CTRLR0_FRF_UWIRE	(2 << 16)
 #define		CTRLR0_BHT_8BIT		(1 << 13)
 #define		CTRLR0_EM_BIG		(1 << 11)
 #define		CTRLR0_SSD_ONE		(1 << 10)
@@ -79,12 +91,17 @@
 #define	RK_SPI_DMACR		0x003c
 #define	RK_SPI_DMATDLR		0x0040
 #define	RK_SPI_DMARDLR		0x0044
+#define	RK_SPI_VERSION		0x0048
+#define		RK_SPI_VERSION_2_1	0x05EC0002
+#define		RK_SPI_VERSION_2_2	0x00110002
+
 #define	RK_SPI_TXDR		0x0400
 #define	RK_SPI_RXDR		0x0800
 
 #define	CS_MAX			1
 
 static struct ofw_compat_data compat_data[] = {
+	{ "rockchip,rk3066-spi",		1 },
 	{ "rockchip,rk3328-spi",		1 },
 	{ "rockchip,rk3399-spi",		1 },
 	{ "rockchip,rk3568-spi",		1 },
@@ -164,7 +181,7 @@ rk_spi_hw_setup(struct rk_spi_softc *sc, uint32_t mode, uint32_t freq)
 	uint32_t cr0;
 	uint32_t div;
 
-	cr0 =  CTRLR0_OPM_MASTER | CTRLR0_XFM_TR | CTRLR0_FRF_MOTO |
+	cr0 =  CTRLR0_OPM_MASTER | CTRLR0_FRF_SPI |
 	    CTRLR0_BHT_8BIT | CTRLR0_EM_BIG | CTRLR0_SSD_ONE |
 	    CTRLR0_DFS_8BIT;
 
@@ -174,7 +191,7 @@ rk_spi_hw_setup(struct rk_spi_softc *sc, uint32_t mode, uint32_t freq)
 		cr0 |= CTRLR0_SCPOL;
 
 	/* minimum divider is 2 */
-	if (sc->max_freq < freq*2) {
+	if (sc->max_freq < freq * 2) {
 		clk_set_freq(sc->clk_spi, 2 * freq, CLK_SET_ROUND_DOWN);
 		clk_get_freq(sc->clk_spi, &sc->max_freq);
 	}
@@ -186,33 +203,49 @@ rk_spi_hw_setup(struct rk_spi_softc *sc, uint32_t mode, uint32_t freq)
 	RK_SPI_WRITE_4(sc, RK_SPI_CTRLR0, cr0);
 }
 
+
 static uint32_t
 rk_spi_fifo_size(struct rk_spi_softc *sc)
 {
-	uint32_t txftlr, reg;
 
-	for (txftlr = 2; txftlr < 32; txftlr++) {
-		RK_SPI_WRITE_4(sc, RK_SPI_TXFTLR, txftlr);
-		reg = RK_SPI_READ_4(sc, RK_SPI_TXFTLR);
-		if (reg != txftlr)
-			break;
+	switch (RK_SPI_READ_4(sc, RK_SPI_VERSION)) {
+	case RK_SPI_VERSION_2_1:
+	case RK_SPI_VERSION_2_2:
+		return (64);
+	default:
+		return (32);
 	}
-	RK_SPI_WRITE_4(sc, RK_SPI_TXFTLR, 0);
-
-	if (txftlr == 31)
-		return 0;
-
-	return txftlr;
 }
 
 static void
 rk_spi_empty_rxfifo(struct rk_spi_softc *sc)
 {
-	uint32_t rxlevel;
-	rxlevel = RK_SPI_READ_4(sc, RK_SPI_RXFLR);
-	while (sc->rxidx < sc->rxlen &&
-	    (rxlevel-- > 0)) {
-		sc->rxbuf[sc->rxidx++] = (uint8_t)RK_SPI_READ_4(sc, RK_SPI_RXDR);
+	int32_t fifo, treshold, left;
+
+	fifo = RK_SPI_READ_4(sc, RK_SPI_RXFLR);
+	treshold = RK_SPI_READ_4(sc, RK_SPI_RXFTLR) + 1;
+	left = sc->rxlen - sc->rxidx;
+
+	dprintf("fifo: %d, treshold: %d, left: %d, rxidx: %d, rxlen: %d, "
+	    "txidx: %d, txlen: %d\n", fifo, treshold, left, sc->rxidx,
+	    sc->rxlen, sc->txidx, sc->txlen);
+
+	if (left <=  fifo) {
+		/* last transfer */
+		fifo = left;
+	} else if ((left - fifo) < treshold) {
+		/*
+		 * Penultimate transfer, keep exact (treshold) bytes
+		 * for last transfer
+		 */
+		fifo = left - treshold;
+	}
+
+	while (fifo-- > 0) {
+		if (sc->rxidx < sc->rxlen) {
+			sc->rxbuf[sc->rxidx++] =
+			    (uint8_t)RK_SPI_READ_4(sc, RK_SPI_RXDR);
+		}
 	}
 }
 
@@ -220,6 +253,7 @@ static void
 rk_spi_fill_txfifo(struct rk_spi_softc *sc)
 {
 	uint32_t txlevel;
+
 	txlevel = RK_SPI_READ_4(sc, RK_SPI_TXFLR);
 
 	while (sc->txidx < sc->txlen && txlevel < sc->fifo_size) {
@@ -227,41 +261,130 @@ rk_spi_fill_txfifo(struct rk_spi_softc *sc)
 		txlevel++;
 	}
 
-	if (sc->txidx != sc->txlen)
-		sc->intreg |= (IMR_TFEIM  | IMR_RFFIM);
+	if (sc->txidx < sc->txlen)
+		sc->intreg |= IMR_TFEIM;
 }
 
 static int
-rk_spi_xfer_buf(struct rk_spi_softc *sc, void *rxbuf, void *txbuf, uint32_t len)
+rk_spi_xfer_buf(struct rk_spi_softc *sc, void *rxbuf, void *txbuf,
+    uint32_t rxlen, uint32_t txlen)
 {
-	int err;
+	uint32_t cr0, cr1, sr;
+	int err, i;
 
-	if (len == 0)
+	dprintf("enter: rxlen: %d, txlen: %d\n", rxlen, txlen);
+
+	if (rxlen == 0 && txlen == 0)
 		return (0);
 
+	cr0 = RK_SPI_READ_4(sc, RK_SPI_CTRLR0);
+	cr0 &= ~CTRLR0_XFM_MASK;
+
 	sc->rxbuf = rxbuf;
-	sc->rxlen = len;
+	sc->rxlen = rxlen;
 	sc->rxidx = 0;
 	sc->txbuf = txbuf;
-	sc->txlen = len;
+	sc->txlen = txlen;
 	sc->txidx = 0;
-	sc->intreg = 0;
-	rk_spi_fill_txfifo(sc);
 
+	cr1 = 0;
+	if (rxlen == 0 && txlen == 0)
+	{
+		device_printf(sc->dev, "Unsupported zero transfer\n");
+		return (EINVAL);
+	}
+	if (rxlen == 0) {
+		/* TX only transfer */
+		cr0 |= CTRLR0_XFM_TR;
+		cr1 = 0;
+	} else if (txlen == 0) {
+		/* RX only transfer */
+		cr0 |= CTRLR0_XFM_RO;
+		cr1 = sc->rxlen;
+	} else {
+		if (rxlen != txlen) {
+			device_printf(sc->dev,
+			    "Unsupported buffer sizes rxlen != txlen \n");
+			return (EINVAL);
+		}
+		cr0 |= CTRLR0_XFM_TR;
+		cr1 = 0;
+	}
+	RK_SPI_WRITE_4(sc, RK_SPI_CTRLR0, cr0);
+	RK_SPI_WRITE_4(sc, RK_SPI_CTRLR1, cr1);
+
+	/* Adjust Rx FIFO threshold for short transfers */
+	if (sc->rxlen != 0) {
+		if (sc->rxlen < sc->fifo_size)
+			RK_SPI_WRITE_4(sc, RK_SPI_RXFTLR, sc->rxlen  - 1);
+		else
+			RK_SPI_WRITE_4(sc, RK_SPI_RXFTLR,
+			    sc->fifo_size / 2 - 1);
+	};
+	dprintf("SPI_CTRLR0: 0x%08X , SPI_CTRLR1: 0x%08X\n",
+	    RK_SPI_READ_4(sc, RK_SPI_CTRLR0), RK_SPI_READ_4(sc, RK_SPI_CTRLR1));
+	sc->intreg = 0;
+
+	RK_SPI_WRITE_4(sc, RK_SPI_ICR, 0xFFFFFFFF);
+	rk_spi_enable_chip(sc, true);
+	if (sc->txlen != 0) {
+		rk_spi_fill_txfifo(sc);
+		sc->intreg |= IMR_TFEIM;
+	}
+	if (sc->rxlen != 0) {
+		sc->intreg |= IMR_RFFIM;
+	}
 	RK_SPI_WRITE_4(sc, RK_SPI_IMR, sc->intreg);
 
-	err = 0;
-	while (err == 0 && sc->intreg != 0)
-		err = msleep(sc, &sc->mtx, 0, "rk_spi", 10 * hz);
-
-	while (err == 0 && sc->rxidx != sc->txidx) {
-		/* read residual data from RX fifo */
-		rk_spi_empty_rxfifo(sc);
+#if 0
+	{
+		int i;
+		printf(" tx[%d]: ",  sc->txidx);
+		for (i = 0; i < sc->txlen; i++) {
+			printf("0x%02X, ",  sc->txbuf[i]);
+		}
+		printf("\n");
 	}
+#endif
 
-	if (sc->rxidx != sc->rxlen || sc->txidx != sc->txlen)
+	err = 0;
+	do {
+		if (cold) {
+			RK_SPI_UNLOCK(sc);
+			rk_spi_intr(sc);
+			RK_SPI_LOCK(sc);
+		} else {
+			err = msleep(sc, &sc->mtx, 0, "rk_spi", 10 * hz);
+			if (err != 0) break;
+		}
+	} while (sc->rxidx != sc->rxlen || sc->txidx != sc->txlen);
+	RK_SPI_WRITE_4(sc, RK_SPI_IMR, 0);
+		if (sc->rxidx != sc->rxlen || sc->txidx != sc->txlen)
 		err = EIO;
-
+	if (err == 0) {
+		/* Wait for controller to finish */
+		for (i = 10000; i >0; i--) {
+			sr =  RK_SPI_READ_4(sc, RK_SPI_SR);
+			if ((sr & SR_BUSY) == 0)
+				break;
+			DELAY(10);
+		}
+		if (sr & SR_BUSY)
+			device_printf(sc->dev, "Ending transfer but controller"
+			    " is still busy:0x%08X\n", sr);
+	}
+	rk_spi_enable_chip(sc, false);
+#if 0
+	{
+		int i;
+		printf(" rx[%d]: ",  sc->rxidx);
+		for (i = 0; i < sc->rxlen; i++) {
+			printf("0x%02X, ",  sc->rxbuf[i]);
+		}
+		printf("\n");
+	}
+#endif
+	dprintf("done: %d\n", err);
 	return (err);
 }
 
@@ -295,9 +418,8 @@ rk_spi_attach(device_t dev)
 		goto fail;
 	}
 
-	if (bus_setup_intr(dev, sc->res[1],
-	    INTR_TYPE_MISC | INTR_MPSAFE, NULL, rk_spi_intr, sc,
-	    &sc->intrhand)) {
+	if (bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC | INTR_MPSAFE, NULL,
+	    rk_spi_intr, sc, &sc->intrhand)) {
 		bus_release_resources(dev, rk_spi_spec, sc->res);
 		device_printf(dev, "cannot setup interrupt handler\n");
 		return (ENXIO);
@@ -306,37 +428,36 @@ rk_spi_attach(device_t dev)
 	/* Activate the module clock. */
 	error = clk_get_by_ofw_name(dev, 0, "apb_pclk", &sc->clk_apb);
 	if (error != 0) {
-		device_printf(dev, "cannot get apb_pclk clock\n");
+		device_printf(dev, "cannot get 'apb_pclk' clock: %d\n", error);
 		goto fail;
 	}
 	error = clk_get_by_ofw_name(dev, 0, "spiclk", &sc->clk_spi);
 	if (error != 0) {
-		device_printf(dev, "cannot get spiclk clock\n");
+		device_printf(dev, "cannot get 'spiclk' clock: %d\n", error);
 		goto fail;
 	}
 	error = clk_enable(sc->clk_apb);
 	if (error != 0) {
-		device_printf(dev, "cannot enable ahb clock\n");
+		device_printf(dev, "cannot enable 'ahb' clock: %d\n", error);
 		goto fail;
 	}
 	error = clk_enable(sc->clk_spi);
 	if (error != 0) {
-		device_printf(dev, "cannot enable spiclk clock\n");
+		device_printf(dev, "cannot enable  'spiclk' clock: %d\n", error);
 		goto fail;
 	}
-	clk_get_freq(sc->clk_spi, &sc->max_freq);
-
+	error = clk_get_freq(sc->clk_spi, &sc->max_freq);
+	if (error != 0) {
+		device_printf(dev, "cannot get 'spiclk' frequency: %d\n", error);
+		goto fail;
+	}
 	sc->fifo_size = rk_spi_fifo_size(sc);
-	if (sc->fifo_size == 0) {
-		device_printf(dev, "failed to get fifo size\n");
-		goto fail;
-	}
 
 	sc->spibus = device_add_child(dev, "spibus", DEVICE_UNIT_ANY);
 
 	RK_SPI_WRITE_4(sc, RK_SPI_IMR, 0);
-	RK_SPI_WRITE_4(sc, RK_SPI_TXFTLR, sc->fifo_size/2 - 1);
-	RK_SPI_WRITE_4(sc, RK_SPI_RXFTLR, sc->fifo_size/2 - 1);
+	RK_SPI_WRITE_4(sc, RK_SPI_DMACR, 0);
+	RK_SPI_WRITE_4(sc, RK_SPI_TXFTLR, 0);
 
 	bus_attach_children(dev);
 	return (0);
@@ -373,31 +494,24 @@ static void
 rk_spi_intr(void *arg)
 {
 	struct rk_spi_softc *sc;
-	uint32_t intreg, isr;
+	uint32_t isr;
 
 	sc = arg;
 
 	RK_SPI_LOCK(sc);
-	intreg = RK_SPI_READ_4(sc, RK_SPI_IMR);
 	isr = RK_SPI_READ_4(sc, RK_SPI_ISR);
 	RK_SPI_WRITE_4(sc, RK_SPI_ICR, isr);
 
-	if (isr & ISR_RFFIS)
-		rk_spi_empty_rxfifo(sc);
-
-	if (isr & ISR_TFEIS)
+	if (sc->txlen != 0)
 		rk_spi_fill_txfifo(sc);
 
-	/* no bytes left, disable interrupt */
-	if (sc->txidx == sc->txlen) {
-		sc->intreg = 0;
-		wakeup(sc);
-	}
+	rk_spi_empty_rxfifo(sc);
 
-	if (sc->intreg != intreg) {
-		(void)RK_SPI_WRITE_4(sc, RK_SPI_IMR, sc->intreg);
-		(void)RK_SPI_READ_4(sc, RK_SPI_IMR);
+	/* no bytes left, disable interrupt */
+	if (sc->txidx == sc->txlen && sc->rxidx == sc->rxlen){
+		RK_SPI_WRITE_4(sc, RK_SPI_IMR, 0);
 	}
+	wakeup(sc);
 
 	RK_SPI_UNLOCK(sc);
 }
@@ -415,7 +529,6 @@ rk_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 	struct rk_spi_softc *sc;
 	uint32_t cs, mode, clock;
 	int err = 0;
-
 	sc = device_get_softc(dev);
 
 	spibus_get_cs(child, &cs);
@@ -424,25 +537,25 @@ rk_spi_transfer(device_t dev, device_t child, struct spi_command *cmd)
 
 	RK_SPI_LOCK(sc);
 	rk_spi_hw_setup(sc, mode, clock);
-	rk_spi_enable_chip(sc, 1);
 	err = rk_spi_set_cs(sc, cs, true);
 	if (err != 0) {
-		rk_spi_enable_chip(sc, 0);
 		RK_SPI_UNLOCK(sc);
 		return (err);
 	}
 
 	/* Transfer command then data bytes. */
-	err = 0;
-	if (cmd->tx_cmd_sz > 0)
-		err = rk_spi_xfer_buf(sc, cmd->rx_cmd, cmd->tx_cmd,
-		    cmd->tx_cmd_sz);
-	if (cmd->tx_data_sz > 0 && err == 0)
-		err = rk_spi_xfer_buf(sc, cmd->rx_data, cmd->tx_data,
-		    cmd->tx_data_sz);
+	err = rk_spi_xfer_buf(sc, cmd->rx_cmd, cmd->tx_cmd,
+		    cmd->rx_cmd_sz, cmd->tx_cmd_sz);
 
+	if (err != 0)
+		goto fail;
+	err = rk_spi_xfer_buf(sc, cmd->rx_data, cmd->tx_data,
+		    cmd->rx_data_sz, cmd->tx_data_sz);
+
+	if (err != 0)
+		goto fail;
+fail:
 	rk_spi_set_cs(sc, cs, false);
-	rk_spi_enable_chip(sc, 0);
 	RK_SPI_UNLOCK(sc);
 
 	return (err);
@@ -454,10 +567,21 @@ static device_method_t rk_spi_methods[] = {
 	DEVMETHOD(device_attach,	rk_spi_attach),
 	DEVMETHOD(device_detach,	rk_spi_detach),
 
-        /* spibus_if  */
+	/* Bus interface */
+	DEVMETHOD(bus_setup_intr,	bus_generic_setup_intr),
+	DEVMETHOD(bus_teardown_intr,	bus_generic_teardown_intr),
+	DEVMETHOD(bus_alloc_resource,	bus_generic_alloc_resource),
+	DEVMETHOD(bus_release_resource,	bus_generic_release_resource),
+	DEVMETHOD(bus_activate_resource, bus_generic_activate_resource),
+	DEVMETHOD(bus_deactivate_resource, bus_generic_deactivate_resource),
+	DEVMETHOD(bus_adjust_resource,	bus_generic_adjust_resource),
+	DEVMETHOD(bus_set_resource,	bus_generic_rl_set_resource),
+	DEVMETHOD(bus_get_resource,	bus_generic_rl_get_resource),
+
+	/* spibus_if  */
 	DEVMETHOD(spibus_transfer,	rk_spi_transfer),
 
-        /* ofw_bus_if */
+	/* ofw_bus_if */
 	DEVMETHOD(ofw_bus_get_node,	rk_spi_get_node),
 
 	DEVMETHOD_END
@@ -468,8 +592,9 @@ static driver_t rk_spi_driver = {
 	rk_spi_methods,
 	sizeof(struct rk_spi_softc),
 };
-
-DRIVER_MODULE(rk_spi, simplebus, rk_spi_driver, 0, 0);
-DRIVER_MODULE(ofw_spibus, rk_spi, ofw_spibus_driver, 0, 0);
+EARLY_DRIVER_MODULE(rk806, simplebus, rk_spi_driver, 0, 0,
+    BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LATE);
+EARLY_DRIVER_MODULE(ofw_spibus, rk_spi, ofw_spibus_driver, 0, 0,
+    BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LATE);
 MODULE_DEPEND(rk_spi, ofw_spibus, 1, 1, 1);
 OFWBUS_PNP_INFO(compat_data);
