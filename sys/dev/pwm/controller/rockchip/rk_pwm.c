@@ -96,6 +96,7 @@
 static struct ofw_compat_data compat_data[] = {
 	{ "rockchip,rk3288-pwm",		1 },
 	{ "rockchip,rk3399-pwm",		1 },
+	{ "rockchip,rk3588-pwm",		1 },
 	{ NULL,					0 }
 };
 
@@ -108,6 +109,7 @@ struct rk_pwm_softc {
 	device_t	dev;
 	device_t	busdev;
 	clk_t		clk;
+	clk_t		pclk;
 	struct resource	*res;
 
 	uint64_t	clk_freq;
@@ -151,15 +153,36 @@ rk_pwm_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
+	node = ofw_bus_get_node(dev);
 
-	error = clk_get_by_ofw_index(dev, 0, 0, &sc->clk);
-	if (error != 0) {
-		device_printf(dev, "cannot get clock\n");
-		goto fail;
+	if (OF_hasprop(node, "clock_names")) {
+		error = clk_get_by_ofw_name(dev, 0, "pwm", &sc->clk);
+		if (error != 0) {
+			device_printf(dev, "cannot get 'pwm' clock\n");
+			goto fail;
+		}
+		error = clk_get_by_ofw_name(dev, 0, "pclk", &sc->pclk);
+		if (error != 0) {
+			device_printf(dev, "cannot get 'pclk' clock\n");
+			goto fail;
+		}
+	} else {
+		error = clk_get_by_ofw_index(dev, 0, 0, &sc->clk);
+		if (error != 0) {
+			device_printf(dev, "cannot get clock\n");
+			goto fail;
+		}
+	}
+	if (sc->pclk != NULL) {
+		error = clk_enable(sc->pclk);
+		if (error != 0) {
+			device_printf(dev, "cannot enable 'pclk' clock\n");
+			goto fail;
+		}
 	}
 	error = clk_enable(sc->clk);
 	if (error != 0) {
-		device_printf(dev, "cannot enable clock\n");
+		device_printf(dev, "cannot enable 'pwm' clock\n");
 		goto fail;
 	}
 	error = clk_get_freq(sc->clk, &sc->clk_freq);
@@ -209,7 +232,6 @@ rk_pwm_attach(device_t dev)
 	sc->duty = NS_PER_SEC /
 		(clk_freq / reg);
 
-	node = ofw_bus_get_node(dev);
 	OF_device_register_xref(OF_xref_from_node(node), dev);
 
 	sc->busdev = device_add_child(dev, "pwmbus", DEVICE_UNIT_ANY);
@@ -237,7 +259,7 @@ rk_pwm_detach(device_t dev)
 }
 
 static phandle_t
-aw_pwm_get_node(device_t bus, device_t dev)
+rk_pwm_get_node(device_t bus, device_t dev)
 {
 
 	/*
@@ -376,7 +398,7 @@ static device_method_t rk_pwm_methods[] = {
 	DEVMETHOD(device_detach,	rk_pwm_detach),
 
 	/* ofw_bus interface */
-	DEVMETHOD(ofw_bus_get_node,	aw_pwm_get_node),
+	DEVMETHOD(ofw_bus_get_node,	rk_pwm_get_node),
 
 	/* pwm interface */
 	DEVMETHOD(pwmbus_channel_count,		rk_pwm_channel_count),

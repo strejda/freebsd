@@ -1467,7 +1467,7 @@ rk_pinctrl_configure_pin(struct rk_pinctrl_softc *sc, uint32_t *pindata)
 		    sc->conf->iomux_conf[i].subbank == subbank)
 			break;
 
-	if (i == sc->conf->iomux_nbanks) {
+	if (i >= sc->conf->iomux_nbanks) {
 		device_printf(sc->dev, "Unknown pin %d in bank %d\n", pin,
 		    bank);
 		return;
@@ -1663,7 +1663,7 @@ rk_pinctrl_is_gpio_locked(struct rk_pinctrl_softc *sc, struct syscon *syscon,
 		    sc->conf->iomux_conf[i].subbank == subbank)
 			break;
 
-	if (i == sc->conf->iomux_nbanks) {
+	if (i >= sc->conf->iomux_nbanks) {
 		device_printf(sc->dev, "Unknown pin %d in bank %d\n", pin,
 		    bank);
 		return (EINVAL);
