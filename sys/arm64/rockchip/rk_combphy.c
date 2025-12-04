@@ -52,32 +52,14 @@
 #include "phydev_if.h"
 #include "phynode_if.h"
 
-
-static struct ofw_compat_data compat_data[] = {
-	{"rockchip,rk3568-naneng-combphy",	1},
-	{NULL, 0}
-};
-
-struct rk3568_combphy_softc {
-	device_t	dev;
-	phandle_t	node;
-	struct resource	*mem;
-	struct phynode	*phynode;
-	struct syscon	*pipe_grf;
-	struct syscon	*pipe_phy_grf;
-	clk_t		ref_clk;
-	clk_t		apb_clk;
-	clk_t		pipe_clk;
-	hwreset_t	phy_reset;
-	int		mode;
-};
-
 #define	PHYREG6				0x14
 #define	 PHYREG6_PLL_DIV_MASK			0xc0
 #define	 PHYREG6_PLL_DIV_2			(1 << 6)
 #define	PHYREG7				0x18
 #define	 PHYREG7_TX_RTERM_50OHM			(8 << 4)
+#define	 PHYREG7_TX_RTERM_MASK			(0x0F << 4)
 #define	 PHYREG7_RX_RTERM_44OHM			(15 << 0)
+#define	 PHYREG7_RX_RTERM_MASK			(0x0F << 0)
 #define	PHYREG8				0x1c
 #define	 PHYREG8_SSC_EN			0x10
 #define	PHYREG11			0x28
@@ -92,6 +74,8 @@ struct rk3568_combphy_softc {
 #define	 PHYREG16_SSC_CNT_VALUE			0x5f
 #define	PHYREG18			0x44
 #define	 PHYREG18_PLL_LOOP			0x32
+#define PHYREG27			0x6c
+#define RK3588_PHYREG27_RX_TRIM			0x4c
 #define	PHYREG32			0x7c
 #define	 PHYREG32_SSC_MASK			0xf0
 #define	 PHYREG32_SSC_UPWARD			(0 << 4)
@@ -142,6 +126,8 @@ struct rk3568_combphy_softc {
 #define	 PIPE_CLK_REF_SRC_I_PLL_CKREF_INNER	(2 << 8)
 #define	 PIPE_RXELECIDLE			(1 << 10)
 #define	 PIPE_FROM_PCIE_IO			(1 << 11)
+#define	PIPE_PHY_GRF_PIPE_STATUS1	0X34
+#define	 PIPE_PHYSTATUS				(1 << 6)
 
 #define	PIPE_GRF_PIPE_CON0		0x00
 #define	 SATA2_PHY_SPDMODE_1GBPS5		(0 << 12)
@@ -159,21 +145,65 @@ struct rk3568_combphy_softc {
 #define	PIPE_GRF_SATA_CON2		0x18
 #define	PIPE_GRF_XPCS_CON0		0x40
 
+#define	PHP_GRF_PHP_CON0		0x00
+#define	PHP_GRF_PCIESEL_CON		0x100
 
-/* PHY class and methods */
+struct rk_combphy_softc *sc;
+
+struct rk_combphy_cfg {
+	int	(*phy_enable)(struct rk_combphy_softc *sc);
+};
+
+static int rk3568_phy_enable(struct rk_combphy_softc *sc);
+struct rk_combphy_cfg rk3568_cfg = {
+	.phy_enable = rk3568_phy_enable,
+};
+
+static int rk3588_phy_enable(struct rk_combphy_softc *sc);
+struct rk_combphy_cfg rk3588_cfg = {
+	.phy_enable = rk3588_phy_enable,
+
+};
+
+struct rk_combphy_softc {
+	device_t			dev;
+	phandle_t			node;
+	struct resource			*mem;
+	struct phynode			*phynode;
+	struct syscon			*pipe_grf;
+	struct syscon			*pipe_phy_grf;
+	clk_t				ref_clk;
+	clk_t				apb_clk;
+	clk_t				pipe_clk;
+	hwreset_t			phy_reset;
+	hwreset_t			apb_reset;
+	const struct rk_combphy_cfg	*cfg;
+	bool				have_enable_ssc;
+	bool				have_ext_ref;
+	int				mode;
+	bool				clk_enabled;
+	
+};
+
+
+static struct ofw_compat_data compat_data[] = {
+	{"rockchip,rk3568-naneng-combphy",	(uintptr_t)&rk3568_cfg},
+	{"rockchip,rk3588-naneng-combphy",	(uintptr_t)&rk3588_cfg},
+	{NULL, 0}
+};
+
+
+/* RK3568 */
+
 static int
-rk3568_combphy_enable(struct phynode *phynode, bool enable)
+rk3568_phy_enable(struct rk_combphy_softc *sc)
 {
-	device_t dev = phynode_get_device(phynode);
-	struct rk3568_combphy_softc *sc = device_get_softc(dev);
 	uint64_t rate;
-
-	if (enable == false)
-		return (0);
+	int rv;
 
 	switch (sc->mode) {
 	case PHY_TYPE_SATA:
-		device_printf(dev, "configuring for SATA");
+		device_printf(sc->dev, "configuring for SATA\n");
 
 		/* tx_rterm 50 ohm & rx_rterm 44 ohm */
 		bus_write_4(sc->mem, PHYREG7,
@@ -201,8 +231,7 @@ rk3568_combphy_enable(struct phynode *phynode, bool enable)
 		break;
 
 	case PHY_TYPE_PCIE:
-		device_printf(dev, "configuring for PCIe");
-
+		device_printf(sc->dev, "configuring for PCIe\n");
 		/* Set SSC downward spread spectrum */
 		bus_write_4(sc->mem, PHYREG32,
 		    (bus_read_4(sc->mem, PHYREG32) & PHYREG32_SSC_MASK) |
@@ -219,8 +248,9 @@ rk3568_combphy_enable(struct phynode *phynode, bool enable)
 		    PIPE_RATE_PCIE_2_5GBPS | PIPE_PHYMODE_PCIE);
 		break;
 
+
 	case PHY_TYPE_USB3:
-		device_printf(dev, "configuring for USB3");
+		device_printf(sc->dev, "configuring for USB3\n");
 
 		/* Set SSC downward spread spectrum */
 		bus_write_4(sc->mem, PHYREG32,
@@ -261,12 +291,16 @@ rk3568_combphy_enable(struct phynode *phynode, bool enable)
 		break;
 
 	default:
-		printf("Unsupported mode=%d\n", sc->mode);
-		return (-1);
+		device_printf(sc->dev, "Unexpected mode: %d\n", sc->mode);
+		panic("Bad mode\n");
 	}
 
-	clk_get_freq(sc->ref_clk, &rate);
-	printf(" ref_clk=%lu\n", rate);
+	rv  = clk_get_freq(sc->ref_clk, &rate);
+	if (rv != 0) {
+		device_printf(sc->dev,
+		    "Cannot get frequency for 'ref' clock: %d\n", rv);
+		return (rv);
+	}
 
 	switch (rate) {
 	case 24000000:
@@ -323,37 +357,334 @@ rk3568_combphy_enable(struct phynode *phynode, bool enable)
 		break;
 
 	default:
-		device_printf(dev, "unknown ref rate=%lu\n", rate);
-		break;
+		device_printf(sc->dev, "unknown ref rate=%lu\n", rate);
+		return(ENXIO);
 	}
 
-	if (OF_hasprop(sc->node, "rockchip,ext-refclk")) {
-		device_printf(dev, "UNSUPPORTED rockchip,ext-refclk\n");
+	if (sc->have_ext_ref) {
+		device_printf(sc->dev, "UNSUPPORTED 'rockchip,ext-refclk'\n");
 	}
-	if (OF_hasprop(sc->node, "rockchip,enable-ssc")) {
-		device_printf(dev, "setting rockchip,enable-ssc\n");
+	if (sc->have_enable_ssc) {
+		device_printf(sc->dev, "Setting 'rockchip,enable-ssc'\n");
 		bus_write_4(sc->mem, PHYREG8,
 		    bus_read_4(sc->mem, PHYREG8) | PHYREG8_SSC_EN);
 	}
 
-	if (hwreset_deassert(sc->phy_reset))
-		device_printf(dev, "phy_reset failed to clear\n");
+	return (0);
+}
+
+
+/* RK3588 */
+static int
+rk3588_phy_enable(struct rk_combphy_softc *sc)
+{
+	uint64_t rate;
+	uint32_t val;
+	rman_res_t res;
+	int rv;
+
+	switch (sc->mode) {
+	case PHY_TYPE_SATA:
+		device_printf(sc->dev, "configuring for SATA\n");
+
+		/* Set adaptive CTLE */
+		val = bus_read_4(sc->mem, PHYREG15);
+		val |= PHYREG15_CTLE_EN;
+		bus_write_4(sc->mem, PHYREG15, val);
+
+		/*
+		 * Set terminators:
+		 * TX terminagto to 50 Ohm, rx terminator to 44 Ohm
+		 * 0: 60ohm, 8: 50ohm 15: 44ohm (by step abort 1ohm)
+		 */
+		val = bus_read_4(sc->mem, PHYREG7);
+		val = PHYREG7_TX_RTERM_50OHM ;
+		val |=PHYREG7_RX_RTERM_44OHM;
+		bus_write_4(sc->mem, PHYREG7, val);
+
+		/* configure CON0 - CON3 in pipe_phy_grf for SATA */
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON0,
+		    0x0129 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    0x0000 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON2,
+		    0x80c1 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON3,
+		    0x0407 | (0xFFFF << 16));
+
+		/* configure CON0 in pipe_grf for SATA */
+		SYSCON_WRITE_4(sc->pipe_grf, PHP_GRF_PCIESEL_CON,
+			    (0x22 << 5) | (0x7F < (5 + 16)));
+		SYSCON_WRITE_4(sc->pipe_grf, PHP_GRF_PCIESEL_CON,
+			    0x02 | (0x7 < 16));
+		break;
+
+	case PHY_TYPE_PCIE:
+		device_printf(sc->dev, "configuring for PCIe\n");
+
+		/* configure CON0 - CON3 in pipe_phy_grf for PCIe */
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON0,
+		    0x1000 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    0x0000 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON2,
+		    0x0101 | (0xFFFF << 16));
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON3,
+		    0x0200 | (0xFFFF << 16));
+
+		/*
+		  This is a huge hack!!! The setting of PCIESEL_CON should be
+		  defined by property in the device tree.
+		*/
+		res = rman_get_start(sc->mem);
+		if (res == 0xfee10000)
+			SYSCON_WRITE_4(sc->pipe_grf, PHP_GRF_PCIESEL_CON,
+			    0 | (0x1 << 16));
+		else if (res == 0xfee20000)
+			SYSCON_WRITE_4(sc->pipe_grf, PHP_GRF_PCIESEL_CON,
+			    0 | (0x2 << 16));
+
+		break;
+
+
+	case PHY_TYPE_USB3:
+		device_printf(sc->dev, "configuring for USB3\n");
+
+		/* Set SSC downward spread spectrum */
+		val = bus_read_4(sc->mem, PHYREG32);
+		val &= ~PHYREG32_SSC_MASK;
+		val |= PHYREG32_SSC_DOWNWARD;
+		bus_write_4(sc->mem, PHYREG32, val);
+
+		/* Set adaptive CTLE */
+		val = bus_read_4(sc->mem, PHYREG15);
+		val |= PHYREG15_CTLE_EN;
+		bus_write_4(sc->mem, PHYREG15, val);
+
+		/* Set PLL KVCO fine tuning signals */
+		val = bus_read_4(sc->mem, PHYREG33);
+		val &= ~PHYREG33_PLL_KVCO_MASK;
+		val |= PHYREG33_PLL_KVCO_VALUE;
+		bus_write_4(sc->mem, PHYREG33, val);	
+
+		/* Enable controlling random jitter. */
+		bus_write_4(sc->mem, PHYREG12, PHYREG12_PLL_LPF_ADJ_VALUE);
+
+		/* Set PLL input clock divider 1/2 */
+		val = bus_read_4(sc->mem, PHYREG6);
+		val &= ~PHYREG6_PLL_DIV_MASK;
+		val |= PHYREG6_PLL_DIV_2;
+		bus_write_4(sc->mem, PHYREG6, val);
+
+		/* Set PLL loop divider */
+		bus_write_4(sc->mem, PHYREG18, PHYREG18_PLL_LOOP);
+
+		/* Set PLL LPF R1 to su_trim[0:7] */
+		bus_write_4(sc->mem, PHYREG11, PHYREG11_SU_TRIM_0_7);
+
+		/* txcomp sel */
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    (0x01 << 0) | 0x01 << (0 + 16));
+
+		/* txelec sel */
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    (0x01 << 15) | 0x01 << (15 + 16));
+
+		/* USB mode */
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON0,
+		    (0x04 << 0) | 0x3F << (0 + 16));
+		break;
+
+	case PHY_TYPE_SGMII:
+	case PHY_TYPE_QSGMII:
+		device_printf(sc->dev, "Incompatible mode: %d\n", sc->mode);
+		return(ENXIO);
+
+	default:
+		device_printf(sc->dev, "Unexpected mode: %d", sc->mode);
+		panic("Bad mode\n");
+	}
+
+	rv  = clk_get_freq(sc->ref_clk, &rate);
+	if (rv != 0) {
+		device_printf(sc->dev,
+		    "Cannot get frequency for 'ref' clock: %d\n", rv);
+		return (rv);
+	}
+
+	switch (rate) {
+	case 24000000:
+		if (sc->mode == PHY_TYPE_USB3 || sc->mode == PHY_TYPE_SATA) {
+			val = bus_read_4(sc->mem, PHYREG15);
+			val &= ~PHYREG15_SSC_CNT_MASK;
+			val |= PHYREG15_SSC_CNT_VALUE;
+			bus_write_4(sc->mem, PHYREG15, val);
+		}
+		break;
+
+	case 25000000:
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    (PHY_CLK_SEL_MASK << 16) | PHY_CLK_SEL_25M);
+		break;
+
+	case 100000000:
+		SYSCON_WRITE_4(sc->pipe_phy_grf, PIPE_PHY_GRF_PIPE_CON1,
+		    (PHY_CLK_SEL_MASK << 16) | PHY_CLK_SEL_100M);
+
+		if (sc->mode == PHY_TYPE_PCIE) {
+			/* Set PLL KVCO fine tuning signals */
+			val = bus_read_4(sc->mem, PHYREG33);
+			val &= ~PHYREG33_PLL_KVCO_MASK;
+			val |= PHYREG33_PLL_KVCO_VALUE;
+			bus_write_4(sc->mem, PHYREG33, val);
+
+			/* Enable controlling random jitter. */
+			bus_write_4(sc->mem, PHYREG12,
+			    PHYREG12_PLL_LPF_ADJ_VALUE);
+
+			/* Set rx trim */
+			bus_write_4(sc->mem, PHYREG33, val);
+
+			/* Set PLL LPF R1 to su_trim[0:7] */
+			bus_write_4(sc->mem, PHYREG27, RK3588_PHYREG27_RX_TRIM);
+		}
+		if (sc->mode == PHY_TYPE_SATA) {
+			/* Set SSC downward spread spectrum */
+			val = bus_read_4(sc->mem, PHYREG33);
+			val &= ~PHYREG32_SSC_MASK;
+			val |= PHYREG32_SSC_DOWNWARD | PHYREG32_SSC_DOWNWARD;
+			bus_write_4(sc->mem, PHYREG33, val);
+		}
+		break;
+
+	default:
+		device_printf(sc->dev, "Unsupported r'ref' clock rate:%lu\n",
+		    rate);
+		return(ENXIO);
+	}
+
+	if (sc->have_ext_ref) {
+		device_printf(sc->dev, "UNSUPPORTED 'rockchip,ext-refclk'\n");
+	}
+	if (sc->have_enable_ssc) {
+		device_printf(sc->dev, "Setting 'rockchip,enable-ssc'\n");
+		bus_write_4(sc->mem, PHYREG8,
+		    bus_read_4(sc->mem, PHYREG8) | PHYREG8_SSC_EN);
+	}
 
 	return (0);
 }
 
-static phynode_method_t rk3568_combphy_phynode_methods[] = {
-	PHYNODEMETHOD(phynode_enable,	rk3568_combphy_enable),
+/* PHY class and methods */
+static int
+rk_combphy_enable(struct phynode *phynode, bool enable)
+{
+	device_t dev;
+	struct rk_combphy_softc *sc;
+	uint32_t val;
+	int i, rv;
+
+	if (!enable)
+		return (0);
+
+
+	dev = phynode_get_device(phynode);
+	sc = device_get_softc(dev);
+
+	if (!sc->clk_enabled) {
+		if (sc->ref_clk != NULL) {
+			rv = clk_enable(sc->ref_clk);
+			if (rv != 0) {
+			 	device_printf(dev,
+		 		    "Cannot enable 'ref' clock: %d:\n", rv);
+		 		return (rv);
+		 	}
+		}
+		if (sc->apb_clk != NULL) {
+			rv = clk_enable(sc->apb_clk);
+			if (rv != 0) {
+			 	device_printf(dev,
+			 	    "Cannot enable 'apb_clk' clock: %d:\n", rv);
+			 	return (rv);
+			 }
+		}
+		if (sc->pipe_clk != NULL) {
+			rv = clk_enable(sc->pipe_clk);
+			if (rv != 0) {
+			 	device_printf(dev,
+			 	    "Cannot enable 'pipe_clk' clock: %d:\n", rv);
+			 	return (rv);
+			 }
+		}
+		sc->clk_enabled = true;
+	}
+	
+	switch (sc->mode) {
+	case PHY_TYPE_PCIE:
+	case PHY_TYPE_USB3:
+	case PHY_TYPE_SATA:
+	case PHY_TYPE_SGMII:
+	case PHY_TYPE_QSGMII:
+		rv = sc->cfg->phy_enable(sc);
+		break;
+	default:
+		device_printf(sc->dev, "Unsupported PHY mode: %d\n", sc->mode);
+		rv = ENXIO;
+		break;
+	}
+
+	if (rv != 0) {
+		device_printf(sc->dev, "Failde to initialize phy: %d\n", rv);
+		goto fail;
+	}
+	
+	rv = hwreset_deassert(sc->phy_reset);
+	if (rv != 0 ) {
+		device_printf(sc->dev, "phy_reset failed to clear: %d\n", rv);
+		goto fail;
+	}
+
+	if (sc->mode == PHY_TYPE_USB3) {
+		for (i = 1000; i > 0; i--) {
+			
+			val = SYSCON_READ_4(sc->pipe_phy_grf,
+			    PIPE_PHY_GRF_PIPE_CON1);
+			if ((val & PIPE_PHYSTATUS) == 0)
+				break;
+			DELAY(10);
+		}
+
+		if (i <= 0) {
+			device_printf(sc->dev, "Wait for phy ready timedouted\n");
+			goto fail;
+		}
+	}
+
+	return (0);
+fail:
+	if (sc->ref_clk != NULL)
+		rv = clk_disable(sc->ref_clk);
+	if (sc->apb_clk != NULL)
+		rv = clk_disable(sc->apb_clk);
+	if (sc->pipe_clk != NULL) 
+		rv = clk_disable(sc->pipe_clk);
+	sc->clk_enabled = false;
+
+	return (rv);
+}
+
+static phynode_method_t rk_combphy_phynode_methods[] = {
+	PHYNODEMETHOD(phynode_enable,	rk_combphy_enable),
 
 	PHYNODEMETHOD_END
 };
-DEFINE_CLASS_1(rk3568_combphy_phynode, rk3568_combphy_phynode_class,
-    rk3568_combphy_phynode_methods, 0, phynode_class);
+DEFINE_CLASS_1(rk_combphy_phynode, rk_combphy_phynode_class,
+    rk_combphy_phynode_methods, 0, phynode_class);
 
 
 /* Device class and methods */
 static int
-rk3568_combphy_probe(device_t dev)
+rk_combphy_probe(device_t dev)
 {
 
 	if (!ofw_bus_status_okay(dev))
@@ -365,83 +696,112 @@ rk3568_combphy_probe(device_t dev)
 }
 
 static int
-rk3568_combphy_attach(device_t dev)
+rk_combphy_attach(device_t dev)
 {
-	struct rk3568_combphy_softc *sc = device_get_softc(dev);
+	struct rk_combphy_softc *sc = device_get_softc(dev);
 	struct phynode_init_def phy_init;
-	struct phynode *phynode;
-	int rid = 0;
+	int rid, rv;
 
 	sc->dev = dev;
 	sc->node = ofw_bus_get_node(dev);
-
+	sc->cfg  = (const struct rk_combphy_cfg *)ofw_bus_search_compatible(dev,
+	    compat_data)->ocd_data;
+	
 	/* Get memory resource */
+	rid = 0;
 	if (!(sc->mem = bus_alloc_resource_any(dev, SYS_RES_MEMORY,
-	    &rid, RF_ACTIVE))) {
+	    &rid, RF_ACTIVE | RF_SHAREABLE))) {
 		device_printf(dev, "Cannot allocate memory resources\n");
 		return (ENXIO);
 	}
 
-	/* Get syncons handles */
-	if (OF_hasprop(sc->node, "rockchip,pipe-grf") &&
-	    syscon_get_by_ofw_property(dev, sc->node, "rockchip,pipe-grf",
-	    &sc->pipe_grf))
+	/* Get syncons */
+	rv = syscon_get_by_ofw_property(dev, sc->node, "rockchip,pipe-grf",
+	    &sc->pipe_grf);
+	if (rv != 0) {
+		device_printf(dev,
+		    "Cannot get 'rockchip,pipe-grf' syscon: %d\n", rv);
 		return (ENXIO);
-	if (OF_hasprop(sc->node, "rockchip,pipe-phy-grf") &&
-	    syscon_get_by_ofw_property(dev, sc->node, "rockchip,pipe-phy-grf",
-	    &sc->pipe_phy_grf))
+	}
+	rv = syscon_get_by_ofw_property(dev, sc->node, "rockchip,pipe-phy-grf",
+	    &sc->pipe_phy_grf);
+	if (rv != 0) {
+		device_printf(dev,
+		    "Cannot get 'rockchip,pipe-phy-grf' syscon: %d\n", rv);
 		return (ENXIO);
+	}
 
-	/* Get & enable clocks */
-	if (clk_get_by_ofw_name(dev, 0, "ref", &sc->ref_clk)) {
-		device_printf(dev, "getting ref failed\n");
+	/* Get  clocks */
+	rv = clk_get_by_ofw_name(dev, 0, "ref", &sc->ref_clk);
+	if (rv != 0) {
+		device_printf(dev, "Cannot get 'ref' clk: %d\n", rv);
 		return (ENXIO);
 	}
-	if (clk_enable(sc->ref_clk))
-		device_printf(dev, "enable ref failed\n");
-	if (clk_get_by_ofw_name(dev, 0, "apb", &sc->apb_clk)) {
-		device_printf(dev, "getting apb failed\n");
+	rv = clk_get_by_ofw_name(dev, 0, "pipe", &sc->pipe_clk);
+	if (rv != 0 && rv != ENOENT) {
+		device_printf(dev, "Cannot get 'pipe' clk: %d\n", rv);
 		return (ENXIO);
 	}
-	if (clk_enable(sc->apb_clk))
-		device_printf(dev, "enable apb failed\n");
-	if (clk_get_by_ofw_name(dev, 0, "pipe", &sc->pipe_clk)) {
-		device_printf(dev, "getting pipe failed\n");
+	rv = clk_get_by_ofw_name(dev, 0, "apb", &sc->apb_clk);
+	if (rv != 0 && rv != ENOENT) {
+		device_printf(dev, "Cannot get 'apb' clk: %d\n", rv);
 		return (ENXIO);
 	}
-	if (clk_enable(sc->pipe_clk))
-		device_printf(dev, "enable pipe failed\n");
 
-	/* get & assert reset */
-	if (hwreset_get_by_ofw_idx(dev, sc->node, 0, &sc->phy_reset)) {
-		device_printf(dev, "Cannot get reset\n");
+
+	/* Get resets */
+	rv = hwreset_get_by_ofw_name(dev, sc->node, "phy", &sc->phy_reset);
+	if (rv == ENOENT)
+		rv = hwreset_get_by_ofw_idx(dev, sc->node, 0, &sc->phy_reset);
+	if (rv != 0) {
+		device_printf(dev, "Cannot get 'phy' reset: %d\n", rv);
 		return (ENXIO);
 	}
+	rv = hwreset_get_by_ofw_name(dev, sc->node, "apb", &sc->apb_reset);
+	if (rv != 0 && rv != ENOENT) {
+		device_printf(dev, "Cannot get 'apb' reset: %d\n", rv);
+		return (ENXIO);
+	}
+
+	/* Get boolean properties */
+	sc->have_ext_ref = OF_hasprop(sc->node, "rockchip,ext-refclk");
+	sc->have_enable_ssc = OF_hasprop(sc->node, "rockchip,enable-ssc");
+
+	sc->mode = 0;
+	
+	/* deassert bus side reset, but keep rest of phy in reset */ 
+	if (sc->apb_reset != NULL)
+		hwreset_deassert(sc->apb_reset);
 	hwreset_assert(sc->phy_reset);
 
+	rv = clk_set_assigned(sc->dev, sc->node);
+	if (rv != 0) {
+		device_printf(dev, "Failed to process assigned clocks: %d\n",
+		   rv);
+		return (ENXIO);
+	}
 	bzero(&phy_init, sizeof(phy_init));
 	phy_init.id = 0;
 	phy_init.ofw_node = sc->node;
-	if (!(phynode = phynode_create(dev, &rk3568_combphy_phynode_class,
-	    &phy_init))) {
-		device_printf(dev, "failed to create combphy PHY\n");
+	sc->phynode = phynode_create(sc->dev, &rk_combphy_phynode_class,
+	    &phy_init);
+	if (sc->phynode == NULL) {
+		device_printf(dev, "Failed to create combphy PHY\n");
 		return (ENXIO);
 	}
-	if (!phynode_register(phynode)) {
-		device_printf(dev, "failed to register combphy PHY\n");
+	if (phynode_register(sc->phynode) == NULL) {
+		device_printf(dev, "Failed to register combphy PHY\n");
 		return (ENXIO);
 	}
-	sc->phynode = phynode;
-	sc->mode = 0;
 
 	return (0);
 }
 
 static int
-rk3568_combphy_map(device_t dev, phandle_t xref, int ncells, pcell_t *cells,
+rk_combphy_map(device_t dev, phandle_t xref, int ncells, pcell_t *cells,
     intptr_t *id)
 {
-	struct rk3568_combphy_softc *sc = device_get_softc(dev);
+	struct rk_combphy_softc *sc = device_get_softc(dev);
 
 	if (phydev_default_ofw_map(dev, xref, ncells, cells, id))
 		return (ERANGE);
@@ -455,15 +815,15 @@ rk3568_combphy_map(device_t dev, phandle_t xref, int ncells, pcell_t *cells,
 	return (0);
 }
 
-static device_method_t rk3568_combphy_methods[] = {
-	DEVMETHOD(device_probe,		rk3568_combphy_probe),
-	DEVMETHOD(device_attach,	rk3568_combphy_attach),
-	DEVMETHOD(phydev_map,		rk3568_combphy_map),
+static device_method_t rk_combphy_methods[] = {
+	DEVMETHOD(device_probe,		rk_combphy_probe),
+	DEVMETHOD(device_attach,	rk_combphy_attach),
+	DEVMETHOD(phydev_map,		rk_combphy_map),
 
 	DEVMETHOD_END
 };
 
-DEFINE_CLASS_1(rk3568_combphy, rk3568_combphy_driver, rk3568_combphy_methods,
+DEFINE_CLASS_1(rk_combphy, rk_combphy_driver, rk_combphy_methods,
     sizeof(struct simple_mfd_softc), simple_mfd_driver);
-EARLY_DRIVER_MODULE(rk3568_combphy, simplebus, rk3568_combphy_driver,
-    0, 0, BUS_PASS_RESOURCE + BUS_PASS_ORDER_LATE);
+EARLY_DRIVER_MODULE(rk_combphy, simplebus, rk_combphy_driver,
+    0, 0, BUS_PASS_INTERRUPT + BUS_PASS_ORDER_LATE);
