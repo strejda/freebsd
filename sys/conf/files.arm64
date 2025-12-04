@@ -768,7 +768,7 @@ dev/qcom_mdio/qcom_mdio_ipq4018.c		optional qcom_mdio fdt mdio mii
 # RockChip Drivers
 arm64/rockchip/rk3328_codec.c			optional fdt rk3328codec soc_rockchip_rk3328
 arm64/rockchip/rk3399_emmcphy.c			optional fdt rk_emmcphy soc_rockchip_rk3399
-arm64/rockchip/rk3568_combphy.c			optional fdt rk_combphy soc_rockchip_rk3568
+arm64/rockchip/rk_combphy.c			optional fdt rk_combphy soc_rockchip
 arm64/rockchip/rk3568_pcie.c			optional fdt pci soc_rockchip_rk3568
 arm64/rockchip/rk_pcie3_phy.c			optional fdt pci soc_rockchip
 arm64/rockchip/rk_i2s.c				optional fdt sound soc_rockchip_rk3328 | fdt sound soc_rockchip_rk3399
