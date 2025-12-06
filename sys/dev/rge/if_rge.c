@@ -862,6 +862,7 @@ rge_encap(struct rge_softc *sc, struct rge_queues *q, struct mbuf *m, int idx)
 		d->rge_extsts = htole32(cflags);
 		wmb();
 		d->rge_cmdsts = htole32(cmdsts);
+//		wmb();
 	}
 
 	/* Update info of TX queue and descriptors. */
@@ -890,9 +891,10 @@ rge_encap(struct rge_softc *sc, struct rge_queues *q, struct mbuf *m, int idx)
 	d = &q->q_tx.rge_tx_list[idx];
 	d->rge_addr = htole64(seg[0].ds_addr);
 	d->rge_extsts = htole32(cflags);
+//	wmb();
+//	d->rge_cmdsts = htole32(cmdsts);
 	wmb();
-	d->rge_cmdsts = htole32(cmdsts);
-	wmb();
+#if 0
 
 	if (cur >= idx) {
 		rge_tx_list_sync(sc, q, idx, nsegs,
@@ -903,13 +905,13 @@ rge_encap(struct rge_softc *sc, struct rge_queues *q, struct mbuf *m, int idx)
 		rge_tx_list_sync(sc, q, 0, cur + 1,
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 	}
-
+#endif
 	/* Transfer ownership of packet to the chip. */
 	cmdsts |= RGE_TDCMDSTS_OWN;
-	rge_tx_list_sync(sc, q, idx, 1, BUS_DMASYNC_POSTWRITE);
+//	rge_tx_list_sync(sc, q, idx, 1, BUS_DMASYNC_POSTWRITE);
 	d->rge_cmdsts = htole32(cmdsts);
-	rge_tx_list_sync(sc, q, idx, 1, BUS_DMASYNC_PREWRITE);
-	wmb();
+//	rge_tx_list_sync(sc, q, idx, 1, BUS_DMASYNC_PREWRITE);
+//	wmb();
 
 	return (nsegs);
 }
@@ -1587,8 +1589,7 @@ rge_allocmem(struct rge_softc *sc)
 	/* Allocate DMA'able memory for the TX ring. */
 	error = bus_dmamem_alloc(sc->sc_dmat_tx_desc,
 	    (void **) &q->q_tx.rge_tx_list,
-	        BUS_DMA_WAITOK | BUS_DMA_ZERO| BUS_DMA_COHERENT
-		| BUS_DMA_NOCACHE,
+	    BUS_DMA_WAITOK | BUS_DMA_ZERO| BUS_DMA_COHERENT,
 	    &q->q_tx.rge_tx_list_map);
 	if (error) {
 		RGE_PRINT_ERROR(sc, "%s: error (alloc tx_list.map) (%d)\n",
@@ -1630,8 +1631,7 @@ rge_allocmem(struct rge_softc *sc)
 	/* Allocate DMA'able memory for the RX ring. */
 	error = bus_dmamem_alloc(sc->sc_dmat_rx_desc,
 	    (void **) &q->q_rx.rge_rx_list,
-	    BUS_DMA_WAITOK | BUS_DMA_ZERO | BUS_DMA_COHERENT
-	    |  BUS_DMA_NOCACHE,
+	    BUS_DMA_WAITOK | BUS_DMA_ZERO | BUS_DMA_COHERENT,
 	    &q->q_rx.rge_rx_list_map);
 	if (error) {
 		RGE_PRINT_ERROR(sc, "%s: error (alloc rx_list.map) (%d)\n",
@@ -1694,8 +1694,7 @@ rge_alloc_stats_mem(struct rge_softc *sc)
 	/* Allocate DMA'able memory for the TX ring. */
 	error = bus_dmamem_alloc(sc->sc_dmat_stats_buf,
 	    (void **) &ss->stats,
-	        BUS_DMA_WAITOK | BUS_DMA_ZERO| BUS_DMA_COHERENT
-		| BUS_DMA_NOCACHE,
+	    BUS_DMA_WAITOK | BUS_DMA_ZERO| BUS_DMA_COHERENT,
 	    &ss->map);
 	if (error) {
 		RGE_PRINT_ERROR(sc, "%s: error (alloc stats) (%d)\n",
@@ -1953,7 +1952,7 @@ rge_newbuf(struct rge_queues *q)
 	 */
 	cmdsts |= RGE_RDCMDSTS_OWN;
 	r->hi_qword1.rx_qword4.rge_cmdsts = htole32(cmdsts);
-	wmb();
+//	wmb();
 
 	/*
 	 * At this point the hope is the whole ring is now updated and
@@ -2034,9 +2033,8 @@ rge_fill_rx_ring(struct rge_queues *q)
 	  __func__, prod, cons, count);
 
 	/* Make sure device->host changes are visible */
-	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
-	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-
+//	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
+//	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	for (i = 0; i < count; i++) {
 		if (rge_newbuf(q))
 			break;
@@ -2096,8 +2094,8 @@ rge_rxeof(struct rge_queues *q, struct mbufq *mq)
 	RGE_DPRINTF(sc, RGE_DEBUG_INTR, "%s; called\n", __func__);
 
 	/* Note: if_re is POSTREAD/WRITE, rge is only POSTWRITE */
-	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
-	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+//	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
+//	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
 	prod = q->q_rx.rge_rxq_prodidx;
 
@@ -2120,7 +2118,7 @@ rge_rxeof(struct rge_queues *q, struct mbufq *mq)
 		}
 
 		/* Ensure everything else has been DMAed */
-		rmb();
+//		rmb();
 
 		/* Get the current rx buffer, sync */
 		rxq = &q->q_rx.rge_rxq[i];
@@ -2273,8 +2271,8 @@ rge_rxeof(struct rge_queues *q, struct mbufq *mq)
 	 * Make sure any device updates to the descriptor ring are
 	 * visible to the host before we continue.
 	 */
-	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+//	bus_dmamap_sync(sc->sc_dmat_rx_desc, q->q_rx.rge_rx_list_map,
+//	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 	wmb();
 
 	/* Update the consumer index, refill the RX ring */
@@ -2308,9 +2306,9 @@ rge_txeof(struct rge_queues *q)
 		txq = &q->q_tx.rge_txq[idx];
 		cur = txq->txq_descidx;
 
-		rge_tx_list_sync(sc, q, cur, 1, BUS_DMASYNC_POSTREAD);
+//		rge_tx_list_sync(sc, q, cur, 1, BUS_DMASYNC_POSTREAD);
 		txstat = q->q_tx.rge_tx_list[cur].rge_cmdsts;
-		rge_tx_list_sync(sc, q, cur, 1, BUS_DMASYNC_PREREAD);
+//		rge_tx_list_sync(sc, q, cur, 1, BUS_DMASYNC_PREREAD);
 		if ((txstat & htole32(RGE_TDCMDSTS_OWN)) != 0) {
 			free = 2;
 			break;
@@ -2345,7 +2343,7 @@ rge_txeof(struct rge_queues *q)
 	/* If we didn't complete any TX descriptors then return 0 */
 	if (free == 0)
 		return (0);
-
+#if 0
 	if (idx >= cons) {
 		rge_tx_list_sync(sc, q, cons, idx - cons,
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
@@ -2355,7 +2353,7 @@ rge_txeof(struct rge_queues *q)
 		rge_tx_list_sync(sc, q, 0, idx,
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	}
-
+#endif
 	q->q_tx.rge_txq_considx = idx;
 
 	RGE_DPRINTF(sc, RGE_DEBUG_XMIT,
