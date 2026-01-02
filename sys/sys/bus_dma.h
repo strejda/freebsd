@@ -84,9 +84,9 @@
 #define	BUS_DMA_WAITOK		0x00	/* safe to sleep (pseudo-flag) */
 #define	BUS_DMA_NOWAIT		0x01	/* not safe to sleep */
 #define	BUS_DMA_ALLOCNOW	0x02	/* perform resource allocation now */
-#define	BUS_DMA_COHERENT	0x04	/* hint: map memory in a coherent way */
+#define	BUS_DMA_COHERENT	0x04	/* tag only: mark tag as coherent*/
 #define	BUS_DMA_ZERO		0x08	/* allocate zero'ed memory */
-#define	BUS_DMA_BUS1		0x10	/* placeholders for bus functions... */
+#define	BUS_DMA_NONCOHERENT	0x10	/* tag only: mark tag as non-coherent*/
 #define	BUS_DMA_BUS2		0x20
 #define	BUS_DMA_BUS3		0x40
 #define	BUS_DMA_BUS4		0x80
@@ -120,10 +120,12 @@ struct uio;
 /*
  * Operations performed by bus_dmamap_sync().
  */
-#define	BUS_DMASYNC_PREREAD	1
-#define	BUS_DMASYNC_POSTREAD	2
-#define	BUS_DMASYNC_PREWRITE	4
-#define	BUS_DMASYNC_POSTWRITE	8
+#define	BUS_DMASYNC_PREREAD	0x01
+#define	BUS_DMASYNC_POSTREAD	0x02
+#define	BUS_DMASYNC_PREWRITE	0x04
+#define	BUS_DMASYNC_POSTWRITE	0x08
+#define	BUS_DMASYNC_SYNCREAD	0x10
+#define	BUS_DMASYNC_SYNCWRITE	0x20
 
 /*
  *	bus_dma_segment_t
