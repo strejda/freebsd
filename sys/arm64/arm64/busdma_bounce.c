@@ -59,6 +59,7 @@
 #include <arm64/include/bus_dma_impl.h>
 
 #define MAX_BPAGES 4096
+#define DMA_INVARIANTS
 
 enum {
 	BF_COULD_BOUNCE		= 0x01,
@@ -110,6 +111,10 @@ struct bus_dmamap {
 #ifdef KMSAN
 	struct memdesc	       kmsan_mem;
 #endif
+	u_int			sync_state;
+#define	DMAMAP_SYNC_READ	(1 << 0)
+#define	DMAMAP_SYNC_WRITE	(1 << 1)
+
 	struct sync_list	slist[];
 };
 
@@ -266,8 +271,14 @@ bounce_bus_dma_tag_create(bus_dma_tag_t parent, bus_size_t alignment,
 	newtag->map_count = 0;
 	newtag->segments = NULL;
 
+	MPASS(!((flags & BUS_DMA_COHERENT) && (flags & BUS_DMA_NONCOHERENT)));
+
 	if ((flags & BUS_DMA_COHERENT) != 0) {
 		newtag->bounce_flags |= BF_COHERENT;
+	}
+
+	if ((flags & BUS_DMA_NONCOHERENT) != 0) {
+		newtag->bounce_flags &= !BF_COHERENT;
 	}
 
 	if (parent != NULL) {
@@ -991,6 +1002,7 @@ dma_dcache_sync(struct sync_list *sl, bus_dmasync_op_t op)
 
 		switch (op) {
 		case BUS_DMASYNC_PREWRITE:
+		case BUS_DMASYNC_SYNCWRITE:
 		case BUS_DMASYNC_PREWRITE | BUS_DMASYNC_PREREAD:
 			cpu_dcache_wb_range((void *)va, len);
 			break;
@@ -1009,11 +1021,12 @@ dma_dcache_sync(struct sync_list *sl, bus_dmasync_op_t op)
 			break;
 		case BUS_DMASYNC_POSTREAD:
 		case BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE:
+		case BUS_DMASYNC_SYNCREAD:
 			cpu_dcache_inv_range((void *)va, len);
 			break;
 		default:
 			panic("unsupported combination of sync operations: "
-                              "0x%08x\n", op);
+			    "0x%08x\n", op);
 		}
 
 		if (tempva != 0)
@@ -1028,11 +1041,63 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 	struct bounce_page *bpage;
 	struct sync_list *sl, *end;
 	vm_offset_t datavaddr, tempvaddr;
+//printf("%s: op: 0x%X, state: 0x%x: %p\n", __func__, op, map->sync_state, map);
+
+#ifdef DMA_INVARIANTS
+	int	i;
+
+	i = 0;
+	if (op & (BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE))  i++;
+	if (op & (BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE)) i++;
+	if (op & (BUS_DMASYNC_SYNCREAD | BUS_DMASYNC_SYNCWRITE)) i++;
+	if (i > 1)
+		panic("%s: one same type of ops (READ/WRITE) can be combined\n",
+		   __func__);
+
+	if (map->sync_state & (DMAMAP_SYNC_READ | DMAMAP_SYNC_WRITE) &&
+	    op & (BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE))
+//		panic("%s: PRE was not followed by corresponding POST"
+//		    " operation\n", __func__);
+		panic("%s: PRE was not followed by corresponding POST"
+		    " operation state: 0x%X, op: 0x%X\n", __func__, map->sync_state, op);
+
+	if ((op & BUS_DMASYNC_POSTREAD &&
+	    !(map->sync_state & DMAMAP_SYNC_READ)) ||
+	    (op & BUS_DMASYNC_POSTWRITE &&
+	    !(map->sync_state & DMAMAP_SYNC_WRITE)))
+		panic("%s: POST was not preceded by corresponding PRE"
+		    " operation\n", __func__);
+
+	if ((op & BUS_DMASYNC_SYNCREAD &&
+	    !(map->sync_state & DMAMAP_SYNC_READ)) ||
+	    (op & BUS_DMASYNC_SYNCWRITE &&
+	    !(map->sync_state & DMAMAP_SYNC_WRITE)))
+		panic("%s: SYNC was not preceded by corresponding PRE"
+		    " operation\n", __func__);
+#endif
+
+	if ((map->flags & DMAMAP_COHERENT) && map->sync_count != 0)
+		panic("%s: Coherent buffer have sync list\n", __func__);
+	if ((map->flags & DMAMAP_COHERENT) == 0 &&
+	    ((op & BUS_DMASYNC_PREREAD  && op & BUS_DMASYNC_PREWRITE) ||
+	     (op & BUS_DMASYNC_POSTREAD && op & BUS_DMASYNC_POSTWRITE) ||
+	     (op & BUS_DMASYNC_SYNCREAD && op & BUS_DMASYNC_SYNCWRITE)))
+		panic("%s: operation on non-coherent buffer must be only one"
+		   " way (READ or WRITE)\n", __func__);
+
+	if (op & BUS_DMASYNC_PREREAD)
+		map->sync_state |= DMAMAP_SYNC_READ;
+	if (op & BUS_DMASYNC_POSTREAD)
+		map->sync_state &= ~DMAMAP_SYNC_READ;
+	if (op & BUS_DMASYNC_PREWRITE)
+		map->sync_state |= DMAMAP_SYNC_WRITE;
+	if (op & BUS_DMASYNC_POSTWRITE)
+		map->sync_state &= ~DMAMAP_SYNC_WRITE;
 
 	if (op == BUS_DMASYNC_POSTWRITE)
 		return;
 
-	if ((op & BUS_DMASYNC_POSTREAD) != 0) {
+	if (op & BUS_DMASYNC_POSTREAD || op & BUS_DMASYNC_SYNCREAD) {
 		/*
 		 * Wait for any DMA operations to complete before the bcopy.
 		 */
@@ -1044,7 +1109,7 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 		    "performing bounce", __func__, dmat, dmat->common.flags,
 		    op);
 
-		if ((op & BUS_DMASYNC_PREWRITE) != 0) {
+		if (op & BUS_DMASYNC_PREWRITE || op & BUS_DMASYNC_SYNCWRITE) {
 			while (bpage != NULL) {
 				tempvaddr = 0;
 				datavaddr = bpage->datavaddr;
@@ -1073,7 +1138,7 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 			}
 		}
 
-		if ((op & BUS_DMASYNC_POSTREAD) != 0) {
+		if (op & BUS_DMASYNC_POSTREAD || op & BUS_DMASYNC_SYNCREAD) {
 			while (bpage != NULL) {
 				if ((map->flags & DMAMAP_COHERENT) == 0)
 					cpu_dcache_inv_range((void *)bpage->vaddr,
@@ -1098,7 +1163,7 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 	}
 
 	/*
-	 * Cache maintenance for normal (non-COHERENT non-bounce) buffers.
+	 * Cache maintenance for non-COHERENT non-bounced buffers.
 	 */
 	if (map->sync_count != 0) {
 		sl = &map->slist[0];
@@ -1110,7 +1175,8 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 			dma_dcache_sync(sl, op);
 	}
 
-	if ((op & (BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE)) != 0) {
+	if ((op & (BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE |
+	    BUS_DMASYNC_SYNCWRITE)) != 0) {
 		/*
 		 * Wait for the bcopy to complete before any DMA operations.
 		 */
