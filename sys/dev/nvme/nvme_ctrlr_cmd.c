@@ -38,7 +38,7 @@ nvme_ctrlr_cmd_identify_controller(struct nvme_controller *ctrlr, void *payload,
 
 	req = nvme_allocate_request_vaddr(payload,
 	    sizeof(struct nvme_controller_data), M_WAITOK, cb_fn, cb_arg);
-
+	req->payload_read = true;
 	cmd = &req->cmd;
 	cmd->opc = NVME_OPC_IDENTIFY;
 
@@ -60,6 +60,7 @@ nvme_ctrlr_cmd_identify_namespace(struct nvme_controller *ctrlr, uint32_t nsid,
 
 	req = nvme_allocate_request_vaddr(payload,
 	    sizeof(struct nvme_namespace_data), M_WAITOK, cb_fn, cb_arg);
+	req->payload_read = true;
 
 	cmd = &req->cmd;
 	cmd->opc = NVME_OPC_IDENTIFY;
@@ -273,6 +274,7 @@ nvme_ctrlr_cmd_get_log_page(struct nvme_controller *ctrlr, uint8_t log_page,
 	 */
 	req = nvme_allocate_request_vaddr(payload, payload_size,
 	    M_NOWAIT, cb_fn, cb_arg);
+	req->payload_read = true;
 
 	cmd = &req->cmd;
 	cmd->opc = NVME_OPC_GET_LOG_PAGE;

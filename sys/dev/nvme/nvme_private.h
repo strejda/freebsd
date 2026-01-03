@@ -117,7 +117,7 @@ struct nvme_request {
 #define NVME_IOQ_DEFAULT		0xffff
 	bool				payload_valid;
 	bool				timeout;
-	bool				spare[2];		/* Future use */
+	bool				payload_read;
 	STAILQ_ENTRY(nvme_request)	stailq;
 };
 

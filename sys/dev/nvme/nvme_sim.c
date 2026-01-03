@@ -99,6 +99,7 @@ nvme_sim_nvmeio(struct cam_sim *sim, union ccb *ccb)
 	payload = nvmeio->data_ptr;
 	size = nvmeio->dxfer_len;
 	/* SG LIST ??? */
+	/* We only support IN or OUT transactions, not BOTH */
 	if ((nvmeio->ccb_h.flags & CAM_DATA_MASK) == CAM_DATA_BIO)
 		req = nvme_allocate_request_bio((struct bio *)payload,
 		    M_NOWAIT, nvme_sim_nvmeio_done, ccb);
@@ -116,6 +117,8 @@ nvme_sim_nvmeio(struct cam_sim *sim, union ccb *ccb)
 		xpt_done(ccb);
 		return;
 	}
+	if (payload != NULL)
+		req->payload_read = (nvmeio->ccb_h.flags & CAM_DIR_IN) != 0;
 	ccb->ccb_h.status |= CAM_SIM_QUEUED;
 
 	memcpy(&req->cmd, &ccb->nvmeio.cmd, sizeof(ccb->nvmeio.cmd));
