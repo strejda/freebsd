@@ -237,9 +237,10 @@ nvme_qpair_complete_tracker(struct nvme_tracker *tr,
 
 	if (!retry) {
 		if (req->payload_valid) {
+			bus_dmasync_op_t op = req->payload_read ?
+			    BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE;
 			bus_dmamap_sync(qpair->dma_tag_payload,
-			    tr->payload_dma_map,
-			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+			    tr->payload_dma_map, op);
 		}
 		if (req->cb_fn)
 			req->cb_fn(req->cb_arg, cpl);
@@ -1067,7 +1068,8 @@ nvme_qpair_submit_tracker(struct nvme_qpair *qpair, struct nvme_tracker *tr)
 		qpair->sq_tail = 0;
 
 	bus_dmamap_sync(qpair->dma_tag, qpair->queuemem_map,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+	    req->payload_read ?
+	    BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE);
 	bus_write_4(ctrlr->resource, qpair->sq_tdbl_off, qpair->sq_tail);
 	qpair->num_cmds++;
 }
@@ -1115,8 +1117,11 @@ nvme_payload_map(void *arg, bus_dma_segment_t *seg, int nseg, int error)
 		tr->req->cmd.prp2 = 0;
 	}
 
-	bus_dmamap_sync(tr->qpair->dma_tag_payload, tr->payload_dma_map,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+	if (tr->req->payload_valid) {
+		bus_dmamap_sync(tr->qpair->dma_tag_payload, tr->payload_dma_map,
+		    tr->req->payload_read ?
+		    BUS_DMASYNC_PREREAD : BUS_DMASYNC_PREWRITE);
+	}
 	nvme_qpair_submit_tracker(tr->qpair, tr);
 }
 
