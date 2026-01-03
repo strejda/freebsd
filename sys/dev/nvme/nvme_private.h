@@ -123,6 +123,7 @@ struct nvme_request {
 	uint16_t			ioq;
 #define NVME_IOQ_DEFAULT		0xffff
 	bool				payload_valid;
+	bool				payload_read;
 	STAILQ_ENTRY(nvme_request)	stailq;
 };
 
