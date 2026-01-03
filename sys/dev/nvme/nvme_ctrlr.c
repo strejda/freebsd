@@ -738,6 +738,7 @@ nvme_ctrlr_construct_and_submit_aer(struct nvme_controller *ctrlr,
 	aer->ctrlr = ctrlr;
 	req = nvme_allocate_request_null(M_WAITOK, nvme_ctrlr_async_event_cb,
 	    aer);
+	req->payload_read = true;
 	aer->req = req;
 	aer->log_page_id = 0;		/* Not a valid page */
 
@@ -1395,6 +1396,7 @@ nvme_user_ioctl_req(vm_offset_t addr, size_t len, bool is_read,
 	(*req)->payload_valid = true;
 	if (*upages != upages_us)
 		*upages = upages_us;
+	(*req)->payload_read = is_read;
 	return (0);
 }
 
@@ -1451,9 +1453,11 @@ nvme_ctrlr_passthrough_cmd(struct nvme_controller *ctrlr,
 			    nvme_pt_done, pt);
 			if (ret != 0)
 				return (ret);
-		} else
+		} else {
 			req = nvme_allocate_request_vaddr(pt->buf, pt->len,
 			    M_WAITOK, nvme_pt_done, pt);
+			req->payload_read = pt->is_read;
+		}
 	} else
 		req = nvme_allocate_request_null(M_WAITOK, nvme_pt_done, pt);
 
@@ -1535,10 +1539,12 @@ nvme_ctrlr_linux_passthru_cmd(struct nvme_controller *ctrlr,
 			    &npages, &req, nvme_npc_done, npc);
 			if (ret != 0)
 				return (ret);
-		} else
+		} else {
 			req = nvme_allocate_request_vaddr(
 			    (void *)(uintptr_t)npc->addr, npc->data_len,
 			    M_WAITOK, nvme_npc_done, npc);
+			req->payload_read = npc->opcode & 0x1;
+		}
 	} else
 		req = nvme_allocate_request_null(M_WAITOK, nvme_npc_done, npc);
 
