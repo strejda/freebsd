@@ -39,6 +39,7 @@ nvme_ns_cmd_read(struct nvme_namespace *ns, void *payload, uint64_t lba,
 	    lba_count * nvme_ns_get_sector_size(ns), M_NOWAIT, cb_fn, cb_arg);
 	if (req == NULL)
 		return (ENOMEM);
+	req->payload_read = true;
 
 	nvme_ns_read_cmd(&req->cmd, ns->id, lba, lba_count);
 
@@ -58,6 +59,7 @@ nvme_ns_cmd_read_bio(struct nvme_namespace *ns, struct bio *bp,
 	req = nvme_allocate_request_bio(bp, M_NOWAIT, cb_fn, cb_arg);
 	if (req == NULL)
 		return (ENOMEM);
+	req->payload_read = true;
 	lba = bp->bio_offset / nvme_ns_get_sector_size(ns);
 	lba_count = bp->bio_bcount / nvme_ns_get_sector_size(ns);
 	nvme_ns_read_cmd(&req->cmd, ns->id, lba, lba_count);
@@ -77,6 +79,7 @@ nvme_ns_cmd_write(struct nvme_namespace *ns, void *payload, uint64_t lba,
 	    lba_count * nvme_ns_get_sector_size(ns), M_NOWAIT, cb_fn, cb_arg);
 	if (req == NULL)
 		return (ENOMEM);
+	req->payload_read = false;
 
 	nvme_ns_write_cmd(&req->cmd, ns->id, lba, lba_count);
 
@@ -96,6 +99,7 @@ nvme_ns_cmd_write_bio(struct nvme_namespace *ns, struct bio *bp,
 	req = nvme_allocate_request_bio(bp, M_NOWAIT, cb_fn, cb_arg);
 	if (req == NULL)
 		return (ENOMEM);
+	req->payload_read = false;
 	lba = bp->bio_offset / nvme_ns_get_sector_size(ns);
 	lba_count = bp->bio_bcount / nvme_ns_get_sector_size(ns);
 	nvme_ns_write_cmd(&req->cmd, ns->id, lba, lba_count);
@@ -117,6 +121,7 @@ nvme_ns_cmd_deallocate(struct nvme_namespace *ns, void *payload,
 	    cb_arg);
 	if (req == NULL)
 		return (ENOMEM);
+	req->payload_read = false;
 
 	cmd = &req->cmd;
 	cmd->opc = NVME_OPC_DATASET_MANAGEMENT;
@@ -163,7 +168,7 @@ nvme_ns_dump(struct nvme_namespace *ns, void *virt, off_t offset, size_t len)
 	    nvme_completion_poll_cb, &status);
 	if (req == NULL)
 		return (ENOMEM);
-
+	req->payload_read = false;
 	cmd = &req->cmd;
 
 	if (len > 0) {
