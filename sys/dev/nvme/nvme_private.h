@@ -115,7 +115,7 @@ struct nvme_request {
 	int32_t				retries;
 	bool				payload_valid;
 	bool				timeout;
-	bool				spare[2];		/* Future use */
+	bool				payload_read;
 	STAILQ_ENTRY(nvme_request)	stailq;
 };
 
