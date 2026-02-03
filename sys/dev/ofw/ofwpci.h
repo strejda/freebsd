@@ -62,6 +62,8 @@ struct ofw_pci_softc {
 
 	struct ofw_pci_range		*sc_range;
 	int				sc_nrange;
+	struct ofw_pci_range		*sc_dmarange;
+	int				sc_ndmarange;
 	uint64_t			sc_range_mask;
 	struct ofw_pci_cell_info	*sc_cell_info;
 
@@ -82,5 +84,6 @@ int ofw_pcib_read_ivar(device_t, device_t, int, uintptr_t *);
 int ofw_pcib_write_ivar(device_t, device_t, int, uintptr_t);
 int ofw_pcib_route_interrupt(device_t, device_t, int);
 int ofw_pcib_nranges(phandle_t, struct ofw_pci_cell_info *);
+int ofw_pcib_ndmaranges(phandle_t, struct ofw_pci_cell_info *);
 
 #endif /* _DEV_OFW_OFWPCI_H_ */

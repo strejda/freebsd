@@ -97,6 +97,7 @@ static phandle_t ofw_pcib_get_node(device_t, device_t);
  * local methods
  */
 static int ofw_pcib_fill_ranges(phandle_t, struct ofw_pci_range *);
+static int ofw_pcib_fill_dmaranges(phandle_t, struct ofw_pci_range *);
 
 /*
  * Driver methods.
@@ -191,13 +192,25 @@ ofw_pcib_init(device_t dev)
 	} else {
 		sc->sc_nrange = ofw_pcib_nranges(node, cell_info);
 		if (sc->sc_nrange <= 0) {
-			device_printf(dev, "could not getranges\n");
+			device_printf(dev, "could not get ranges\n");
 			error = ENXIO;
 			goto out;
 		}
 		sc->sc_range = malloc(sc->sc_nrange * sizeof(sc->sc_range[0]),
 		    M_DEVBUF, M_WAITOK);
 		ofw_pcib_fill_ranges(node, sc->sc_range);
+	}
+
+	if (OF_hasprop(node, "dma-ranges")) {
+		sc->sc_ndmarange = ofw_pcib_ndmaranges(node, cell_info);
+		if (sc->sc_ndmarange <= 0) {
+			device_printf(dev, "could not get dma-ranges\n");
+			error = ENXIO;
+			goto out;
+		}
+		sc->sc_dmarange = malloc(sc->sc_ndmarange *
+		    sizeof(sc->sc_dmarange[0]), M_DEVBUF, M_WAITOK);
+		ofw_pcib_fill_dmaranges(node, sc->sc_dmarange);
 	}
 
 	sc->sc_io_rman.rm_type = RMAN_ARRAY;
@@ -388,34 +401,6 @@ ofw_pcib_write_ivar(device_t dev, device_t child, int which, uintptr_t value)
 	}
 
 	return (ENOENT);
-}
-
-int
-ofw_pcib_nranges(phandle_t node, struct ofw_pci_cell_info *info)
-{
-	ssize_t nbase_ranges;
-
-	if (info == NULL)
-		return (-1);
-
-	info->host_address_cells = 1;
-	info->size_cells = 2;
-	info->pci_address_cell = 3;
-
-	OF_getencprop(OF_parent(node), "#address-cells",
-	    &(info->host_address_cells), sizeof(info->host_address_cells));
-	OF_getencprop(node, "#address-cells",
-	    &(info->pci_address_cell), sizeof(info->pci_address_cell));
-	OF_getencprop(node, "#size-cells", &(info->size_cells),
-	    sizeof(info->size_cells));
-
-	nbase_ranges = OF_getproplen(node, "ranges");
-	if (nbase_ranges <= 0)
-		return (-1);
-
-	return (nbase_ranges / sizeof(cell_t) /
-	    (info->pci_address_cell + info->host_address_cells +
-	    info->size_cells));
 }
 
 static struct resource *
@@ -658,7 +643,38 @@ ofw_pcib_get_node(device_t bus, device_t dev)
 }
 
 static int
-ofw_pcib_fill_ranges(phandle_t node, struct ofw_pci_range *ranges)
+ofw_pcib_nranges_impl(char *prop_name, phandle_t node,
+    struct ofw_pci_cell_info *info)
+{
+	ssize_t nbase_ranges;
+
+	if (info == NULL)
+		return (-1);
+
+	info->host_address_cells = 1;
+	info->size_cells = 2;
+	info->pci_address_cell = 3;
+
+	OF_getencprop(OF_parent(node), "#address-cells",
+	    &(info->host_address_cells), sizeof(info->host_address_cells));
+	OF_getencprop(node, "#address-cells",
+	    &(info->pci_address_cell), sizeof(info->pci_address_cell));
+	OF_getencprop(node, "#size-cells", &(info->size_cells),
+	    sizeof(info->size_cells));
+
+	nbase_ranges = OF_getproplen(node, prop_name);
+	if (nbase_ranges < 0)
+		return (-1);
+
+	return (nbase_ranges / sizeof(cell_t) /
+	    (info->pci_address_cell + info->host_address_cells +
+	    info->size_cells));
+}
+
+
+static int
+ofw_pcib_fill_ranges_impl(char *prop_name, phandle_t node,
+    struct ofw_pci_range *ranges)
 {
 	int host_address_cells = 1, pci_address_cells = 3, size_cells = 2;
 	cell_t *base_ranges;
@@ -672,14 +688,14 @@ ofw_pcib_fill_ranges(phandle_t node, struct ofw_pci_range *ranges)
 	    sizeof(pci_address_cells));
 	OF_getencprop(node, "#size-cells", &size_cells, sizeof(size_cells));
 
-	nbase_ranges = OF_getproplen(node, "ranges");
-	if (nbase_ranges <= 0)
+	nbase_ranges = OF_getproplen(node, prop_name);
+	if (nbase_ranges < 0)
 		return (-1);
 	nranges = nbase_ranges / sizeof(cell_t) /
 	    (pci_address_cells + host_address_cells + size_cells);
 
 	base_ranges = malloc(nbase_ranges, M_DEVBUF, M_WAITOK);
-	OF_getencprop(node, "ranges", base_ranges, nbase_ranges);
+	OF_getencprop(node, prop_name, base_ranges, nbase_ranges);
 
 	for (i = 0, j = 0; i < nranges; i++) {
 		ranges[i].pci_hi = base_ranges[j++];
@@ -703,6 +719,35 @@ ofw_pcib_fill_ranges(phandle_t node, struct ofw_pci_range *ranges)
 	free(base_ranges, M_DEVBUF);
 	return (nranges);
 }
+
+int
+ofw_pcib_nranges(phandle_t node, struct ofw_pci_cell_info *info)
+{
+
+	return (ofw_pcib_nranges_impl("ranges", node, info));
+}
+
+static int
+ofw_pcib_fill_ranges(phandle_t node, struct ofw_pci_range *ranges)
+{
+
+	return (ofw_pcib_fill_ranges_impl("ranges", node, ranges));
+}
+
+int
+ofw_pcib_ndmaranges(phandle_t node, struct ofw_pci_cell_info *info)
+{
+
+	return (ofw_pcib_nranges_impl("dma-ranges", node, info));
+}
+
+static int
+ofw_pcib_fill_dmaranges(phandle_t node, struct ofw_pci_range *ranges)
+{
+
+	return (ofw_pcib_fill_ranges_impl("dma-ranges", node, ranges));
+}
+
 
 static struct rman *
 ofw_pcib_get_rman(device_t bus, int type, u_int flags)
