@@ -255,8 +255,10 @@ pci_dw_map_out_atu_unroll(struct pci_dw_softc *sc, int idx, int type,
 	    pa & 0xFFFFFFFF);
 	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, UPPER_BASE_ADDR),
 	    (pa >> 32) & 0xFFFFFFFF);
-	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, LIMIT_ADDR),
+	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, LWR_LIMIT_ADDR),
 	    (pa + size - 1) & 0xFFFFFFFF);
+	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, UPPER_LIMIT_ADDR),
+	    ((pa + size - 1) >>32) & 0xFFFFFFFF);
 	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, LWR_TARGET_ADDR),
 	    pci_addr & 0xFFFFFFFF);
 	IATU_UR_WR4(sc, DW_IATU_UR_REG(idx, UPPER_TARGET_ADDR),
@@ -292,7 +294,9 @@ pci_dw_map_out_atu_legacy(struct pci_dw_softc *sc, int idx, int type,
 	DBI_WR4(sc, DW_IATU_VIEWPORT, IATU_REGION_INDEX(idx));
 	DBI_WR4(sc, DW_IATU_LWR_BASE_ADDR, pa & 0xFFFFFFFF);
 	DBI_WR4(sc, DW_IATU_UPPER_BASE_ADDR, (pa >> 32) & 0xFFFFFFFF);
-	DBI_WR4(sc, DW_IATU_LIMIT_ADDR, (pa + size - 1) & 0xFFFFFFFF);
+	DBI_WR4(sc, DW_IATU_LWR_LIMIT_ADDR, (pa + size - 1) & 0xFFFFFFFF);
+	DBI_WR4(sc, DW_IATU_UPPER_LIMIT_ADDR,
+	    ((pa + size - 1) >> 32) & 0xFFFFFFFF);
 	DBI_WR4(sc, DW_IATU_LWR_TARGET_ADDR, pci_addr & 0xFFFFFFFF);
 	DBI_WR4(sc, DW_IATU_UPPER_TARGET_ADDR, (pci_addr  >> 32) & 0xFFFFFFFF);
 	DBI_WR4(sc, DW_IATU_CTRL1, IATU_CTRL1_TYPE(type));
