@@ -131,6 +131,11 @@ static const struct marchid_entry sifive_marchids[] = {
 	MARCHID_END
 };
 
+static const struct marchid_entry spacemit_marchids[] = {
+	{ MARCHID_SPACEMIT_K1,	"SpacemiT(R) X60" },
+	MARCHID_END
+};
+
 /*
  * Known CPU vendor/manufacturer table.
  */
@@ -142,6 +147,7 @@ static const struct {
 	{ MVENDORID_UNIMPL,	"Unspecified",		NULL		},
 	{ MVENDORID_SIFIVE,	"SiFive",		sifive_marchids	},
 	{ MVENDORID_THEAD,	"T-Head",		NULL		},
+	{ MVENDORID_SPACEMIT,	"SpacemiT",		spacemit_marchids	},
 };
 
 /*
