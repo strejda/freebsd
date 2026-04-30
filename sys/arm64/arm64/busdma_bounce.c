@@ -138,6 +138,8 @@ static MALLOC_DEFINE(M_BUSDMA, "busdma", "busdma metadata");
 #define	dmat_lockfuncarg(dmat)	((dmat)->common.lockfuncarg)
 #define	dmat_maxsegsz(dmat)	((dmat)->common.maxsegsz)
 #define	dmat_nsegments(dmat)	((dmat)->common.nsegments)
+#define	dmat_mapseg(dmat)	((dmat)->common.mapseg)
+#define	dmat_mapseg_arg(dmat)	((dmat)->common.mapseg_arg)
 
 #include "../../kern/subr_busdma_bounce.c"
 
