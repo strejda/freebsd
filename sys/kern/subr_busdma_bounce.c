@@ -450,7 +450,7 @@ static bus_size_t
 _bus_dmamap_addseg(bus_dma_tag_t dmat, bus_dmamap_t map, bus_addr_t curaddr,
     bus_size_t sgsize, bus_dma_segment_t *segs, int *segp)
 {
-	int seg;
+	int seg, rv;
 
 	KASSERT(curaddr <= BUS_SPACE_MAXADDR,
 	    ("ds_addr %#jx > BUS_SPACE_MAXADDR %#jx; dmat %p fl %#x low %#jx "
@@ -464,6 +464,14 @@ _bus_dmamap_addseg(bus_dma_tag_t dmat, bus_dmamap_t map, bus_addr_t curaddr,
 	 */
 	if (!vm_addr_bound_ok(curaddr, sgsize, dmat_boundary(dmat)))
 		sgsize = roundup2(curaddr, dmat_boundary(dmat)) - curaddr;
+	if (dmat_mapseg(dmat) != NULL) {
+		rv = dmat_mapseg(dmat)(dmat_mapseg_arg(dmat), dmat, &curaddr,
+		    sgsize);
+		if (rv != 0) {
+			panic("%s: Cannot map DMA segment: (0x%jX, %ju)\n",
+			__func__, (uintmax_t)curaddr, (uintmax_t)sgsize);
+		}
+	}
 
 	/*
 	 * Insert chunk into a segment, coalescing with
