@@ -107,6 +107,8 @@ common_bus_dma_tag_create(struct bus_dma_tag_common *parent,
 		}
 
 		common->domain = parent->domain;
+		common->mapseg = parent->mapseg;
+		common->mapseg_arg = parent->mapseg_arg;
 	}
 	common->domain = vm_phys_domain_match(common->domain, 0ul,
 	    common->lowaddr);
@@ -187,4 +189,14 @@ bus_dma_tag_set_domain(bus_dma_tag_t dmat, int domain)
 		return (0);
 	tc->domain = domain;
 	return (tc->impl->tag_set_domain(dmat));
+}
+
+void
+bus_dma_tag_set_mapseg(bus_dma_tag_t dmat, bus_dma_mapseg_t *mapseg, void *arg)
+{
+	struct bus_dma_tag_common *tc;
+
+	tc = (struct bus_dma_tag_common *)dmat;
+	tc->mapseg = mapseg;
+	tc->mapseg_arg = arg;
 }

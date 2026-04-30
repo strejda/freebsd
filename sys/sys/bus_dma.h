@@ -146,6 +146,12 @@ typedef struct bus_dma_segment {
 typedef int bus_dma_filter_t(void *, bus_addr_t);
 
 /*
+ * A function which maps PA of buffer to bus address(aka bus view).
+ */
+typedef int bus_dma_mapseg_t(void *arg, bus_dma_tag_t dmat, bus_addr_t *addr,
+    bus_size_t sizeg);
+
+/*
  * Generic helper function for manipulating mutexes.
  */
 void busdma_lock_mutex(void *arg, bus_dma_lock_op_t op);
@@ -268,6 +274,12 @@ void bus_dma_template_fill(bus_dma_template_t *t, bus_dma_param_t *kv,
  * allocating memory.
  */
 int bus_dma_tag_set_domain(bus_dma_tag_t dmat, int domain);
+
+/*
+ * Set the buffer segment mapping function. It maps PA of buffer to bus view.
+ */
+void bus_dma_tag_set_mapseg(bus_dma_tag_t dmat, bus_dma_mapseg_t *mapseg,
+     void *arg);
 
 int bus_dma_tag_destroy(bus_dma_tag_t dmat);
 
