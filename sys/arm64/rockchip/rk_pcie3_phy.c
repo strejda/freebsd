@@ -73,28 +73,38 @@
 /* RK3588 */
 #define PHP_PCIESEL_CON			0x100
 #define PCIE3PHY_CMN_CON0		0x000
-#define PCIE3PHY_CLAMP_DIS		 (1 << 8)
-#define PCIE3PHY_CLAMP_MASK		 ((1 << 8) << 16)
-#define RK3588_PCIE30_MODE_SHIFT	0
-#define RK3588_PCIE30_MODE_MASK		((0x7 <<R K3588_PCIE30_MODE_SHIFT)  << 16)
+#define PCIE3PHY_CLAMP_DIS		 (0x1 << 8)
+#define PCIE3PHY_CLAMP_WRMASK		 ((0x1 << 8) << 16)
+#define RK3588_PCIE30_MODE_SHIFT	 0
+#define RK3588_PCIE30_MODE_WRMASK	 ((0x7 << 0) << 16)
+#define PCIE3PHY_CMN_STATUS0		0x800
 
+#define PCIE3PHY_PHY0_CON0		0x100
+#define PCIE3PHY_PHY1_CON0		0x200
+
+#define PCIE3PHY_PHY0_STATUS0		0x900
 #define PCIE3PHY_PHY0_STATUS1		0x904
+#define PCIE3PHY_PHY1_STATUS0		0xa00
 #define PCIE3PHY_PHY1_STATUS1		0xa04
+#define PCIE3PHY_PHY0_LN0_CON0		0x1000
 #define PCIE3PHY_PHY0_LN0_CON1		0x1004
+#define PCIE3PHY_PHY0_LN1_CON0		0x1100
 #define PCIE3PHY_PHY0_LN1_CON1		0x1104
+#define PCIE3PHY_PHY1_LN0_CON0		0x2000
 #define PCIE3PHY_PHY1_LN0_CON1		0x2004
+#define PCIE3PHY_PHY1_LN1_CON0		0x2100
 #define PCIE3PHY_PHY1_LN1_CON1		0x2104
 #define PCIE3PHY_SRAM_INIT_DONE		 (0x01 << 0)
 
 #define PCIE3PHY_BIFURCATION_LANE_0_1		(1 << 0)
 #define PCIE3PHY_BIFURCATION_LANE_2_3		(1 << 1)
 #define PCIE3PHY_LANE_AGGREGATION		(1 << 2)
-#define PCIE3PHY_RX_CMN_REFCLK_MODE_MASK	((1 << 7) << 16)
-#define PCIE3PHY_RX_CMN_REFCLK_MODE_SHIT	7
+#define PCIE3PHY_RX_REFCLK_MODE_WRMASK		((1 << 7) << 16)
+#define PCIE3PHY_RX_REFCLK_MODE_ENA		(1 << 7)
 
-#define PCIE3PHY_PCIE1LN_SEL_MASK		((0x03 << 0) << 16)
+#define PCIE3PHY_PCIE1LN_SEL_WRMASK		((0x03 << 0) << 16)
 #define PCIE3PHY_PCIE1LN_SEL_SHIFT		0
-#define PCIE3PHY_PCIE30_PHY_MODE_MASK		((0x07 << 0) << 16)
+#define PCIE3PHY_PCIE30_PHY_MODE_WRMASK		((0x07 << 0) << 16)
 #define PCIE3PHY_PCIE30_PHY_MODE_SHIFT		0
 
 static struct ofw_compat_data compat_data[] = {
@@ -191,6 +201,7 @@ rk3568_pciephy_bifurcate(struct rk_pcie3_phy_softc *sc, int control,
 static int
 rk3568_init(struct rk_pcie3_phy_softc *sc)
 {
+
 	/* Deassert PCIe PMA output clamp mode */
 	SYSCON_WRITE_4(sc->phy_grf, GRF_PCIE30PHY_CON9, GRF_PCIE30PHY_DA_OCM);
 
@@ -213,52 +224,90 @@ rk3588_pcie3_phy_enable(struct phynode *phynode, bool enable)
 {
 	device_t dev;
 	struct rk_pcie3_phy_softc *sc;
-	int count;
+	uint32_t val;
+	int i;
 
 	dev = phynode_get_device(phynode);
 	sc = device_get_softc(dev);
-	if (enable) {
-		/* Pull PHY out of reset */
-		if (sc->phy_reset != NULL)
-			hwreset_deassert(sc->phy_reset);
 
-		/* Poll for SRAM loaded and ready */
-		for (count = 100; count; count--) {
-			if (SYSCON_READ_4(sc->phy_grf,
-			    PCIE3PHY_PHY0_STATUS1) &
-			    GRF_PCIE30PHY_SRAM_INIT_DONE)
-				break;
-			DELAY(10000);
-			if (count == 0) {
-				device_printf(dev, "SRAM(0) init timeout!\n");
-				return (ENXIO);
-			}
-		}
-		for (count = 100; count; count--) {
-			if (SYSCON_READ_4(sc->phy_grf,
-			     PCIE3PHY_PHY1_STATUS1) &
-			    GRF_PCIE30PHY_SRAM_INIT_DONE)
-				break;
-			DELAY(10000);
-			if (count == 0) {
-				device_printf(dev, "SRAM(1) init timeout!\n");
-				return (ENXIO);
-			}
-		}
-	} else {
-		/* Pull PHY to  reset */
+	if (!enable) {
+		/* Push  PHY to  reset */
 		if (sc->phy_reset != NULL)
 			hwreset_assert(sc->phy_reset);
+		return (0);
+	}
+
+	/* Pull PHY out of reset */
+	if (sc->phy_reset != NULL)
+		hwreset_deassert(sc->phy_reset);
+		/* Poll for SRAM loaded and ready */
+	for (i = 100; i; i--) {
+		val =  SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY0_STATUS1);
+		if (val & GRF_PCIE30PHY_SRAM_INIT_DONE)
+			break;
+		DELAY(1000);
+		if (i == 0) {
+			device_printf(dev, "SRAM(0) init timeout!\n");
+			return (ENXIO);
+		}
+	}
+
+	for (i = 100; i; i--) {
+		val = SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY1_STATUS1);
+		if (val &  GRF_PCIE30PHY_SRAM_INIT_DONE)
+			break;
+		DELAY(1000);
+		if (i == 0) {
+			device_printf(dev, "SRAM(1) init timeout!\n");
+				return (ENXIO);
+		}
 	}
 
 	return (0);
 }
 
+
+static int
+rk3588_pcie3_phy_status(struct phynode *phynode, int *status)
+{
+	device_t dev;
+	struct rk_pcie3_phy_softc *sc;
+	int i;
+
+	dev = phynode_get_device(phynode);
+	sc = device_get_softc(dev);
+	device_printf(dev, "%s: CMN STATUS: 0x%08X\n", __func__,
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_CMN_STATUS0));
+	for (i = 0; i <= 4; i++) {
+		device_printf(dev, "%s: STATUS%d: 0x%08X 0x%08X\n", __func__, i,
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY0_STATUS0 + 4 * i),
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY1_STATUS0 + 4 * i));
+	}
+	for (i = 0; i <= 9; i++) {
+		device_printf(dev, "%s: CON%d: 0x%08X 0x%08X\n", __func__, i,
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY0_CON0 + 4 * i),
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY1_CON0 + 4 * i));
+	}
+	for (i = 0; i <= 1; i++) {
+		device_printf(dev, "%s: LN0_CON%d: 0x%08X 0x%08X\n", __func__, i,
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY0_LN0_CON0 + 4 * i),
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY1_LN0_CON0 + 4 * i));
+	}
+	for (i = 0; i <= 1; i++) {
+		device_printf(dev, "%s: LN1_CON%d: 0x%08X 0x%08X\n", __func__, i,
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY0_LN1_CON0 + 4 * i),
+	SYSCON_READ_4(sc->phy_grf, PCIE3PHY_PHY1_LN1_CON0 + 4 * i));
+	}
+	return (0);
+}
+
 static phynode_method_t rk3588_pcie3_phy_phynode_methods[] = {
 	PHYNODEMETHOD(phynode_enable,	rk3588_pcie3_phy_enable),
+	PHYNODEMETHOD(phynode_status,	rk3588_pcie3_phy_status),
 
 	PHYNODEMETHOD_END
 };
+
 DEFINE_CLASS_1(rk3588_pcie3_phy_phynode, rk3588_pcie3_phy_phynode_class,
     rk3588_pcie3_phy_phynode_methods, 0, phynode_class);
 
@@ -278,37 +327,42 @@ rk3588_init(struct rk_pcie3_phy_softc *sc)
 	/* Apply rx_refclk_mode(s) */
 	for (i = 0; i < 4; i++) {
 		val = 0;
+device_printf(sc->dev, "%s: refclk_mode[%d] : %d\n", __func__, i,
+ sc->rx_refclk_mode[i]);
 		if (sc->rx_refclk_mode[i] != 0)
-			val |=	PCIE3PHY_RX_CMN_REFCLK_MODE_MASK;
+			val |=	PCIE3PHY_RX_REFCLK_MODE_ENA;
+
 		SYSCON_WRITE_4(sc->phy_grf, rx_refclk_reg[i],
-		    PCIE3PHY_RX_CMN_REFCLK_MODE_MASK |
-		    (val << PCIE3PHY_RX_CMN_REFCLK_MODE_SHIT));
+		    PCIE3PHY_RX_REFCLK_MODE_WRMASK | val);
 	}
 
 	/* Deassert PCIe PMA output clamp mode */
 	SYSCON_WRITE_4(sc->phy_grf, PCIE3PHY_CMN_CON0,
-	    PCIE3PHY_CLAMP_MASK | PCIE3PHY_CLAMP_DIS);
+	    PCIE3PHY_CLAMP_WRMASK | PCIE3PHY_CLAMP_DIS);
 
 	/* Compute bifurcation */
-	val =  0;
+	val =  PCIE3PHY_LANE_AGGREGATION;
 	for (i = 0; i < sc->num_data_lanes; i++) {
-		if (sc->data_lanes[i] <= 1)
-			val = PCIE3PHY_LANE_AGGREGATION;
+		if (sc->data_lanes[i] > 1)
+			val &= ~PCIE3PHY_LANE_AGGREGATION;
 		if (sc->data_lanes[i] == 3)
 			val |= PCIE3PHY_BIFURCATION_LANE_0_1;
 		if (sc->data_lanes[i] == 4)
 			val |= PCIE3PHY_BIFURCATION_LANE_2_3;
 	}
+device_printf(sc->dev, "%s: PCIE3PHY_CMN_CON0: 0x%08x\n", __func__, val);
+
 	SYSCON_WRITE_4(sc->phy_grf, PCIE3PHY_CMN_CON0,
-	    PCIE3PHY_PCIE30_PHY_MODE_MASK |
+	    PCIE3PHY_PCIE30_PHY_MODE_WRMASK |
 	    (val << PCIE3PHY_PCIE30_PHY_MODE_SHIFT));
 
 	tmp = val & (PCIE3PHY_BIFURCATION_LANE_0_1 |
-	     PCIE3PHY_BIFURCATION_LANE_2_3);
+	    PCIE3PHY_BIFURCATION_LANE_2_3);
 	if (sc->pipe_grf != NULL && tmp != 0) {
 		SYSCON_WRITE_4(sc->pipe_grf, PHP_PCIESEL_CON,
-    			PCIE3PHY_PCIE1LN_SEL_MASK |
-    		tmp << PCIE3PHY_PCIE1LN_SEL_SHIFT);
+		    PCIE3PHY_PCIE1LN_SEL_WRMASK |
+		    tmp << PCIE3PHY_PCIE1LN_SEL_SHIFT);
+device_printf(sc->dev, "%s: PCIE3PHY_PCIE1LN_SEL_WRMASK: 0x%08x\n", __func__, tmp);
 	}
 
 	return (0);
@@ -344,7 +398,8 @@ rk_pcie3_phy_attach(device_t dev)
 
 	/* Get memory resource */
 	rid = 0;
-	sc->mem = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid, RF_ACTIVE | RF_SHAREABLE);
+	sc->mem = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
+	    RF_ACTIVE | RF_SHAREABLE);
 	if (sc->mem == NULL) {
 		device_printf(dev, "Cannot allocate memory resources\n");
 		return (ENXIO);
@@ -417,7 +472,7 @@ rk_pcie3_phy_attach(device_t dev)
 			    rv);
 			return (ENXIO);
 		}
-		sc->num_data_lanes = rv / sizeof(uint32_t);
+		sc->num_data_lanes = rv / sizeof(sc->data_lanes[0]);
 		if (sc->num_data_lanes < 2) {
 			device_printf(dev,
 			    "Unexpected format of 'data-lanes'\n");
@@ -474,7 +529,7 @@ rk_pcie3_phy_attach(device_t dev)
 	}
 
 	bzero(&phy_init, sizeof(phy_init));
-	phy_init.id = PHY_NONE;
+	phy_init.id = 1;
 	phy_init.ofw_node = sc->node;
 
 	switch (sc->phy_type) {
