@@ -895,7 +895,7 @@ OLD_LIBS+=usr/lib/libprivateclang.so.21
 .endif
 
 .if (${MK_CLANG_EXTRAS} == no && ${MK_CLANG} == no && ${MK_LLDB} == no && \
-    ${MK_LLD} == no && ${MK_LLVM_BINUTILS} == no && ${MK_LLVM_COV} == no) || \
+    ${MK_LLD} == no && ${MK_LLVM_BINUTILS} == no) || \
     ${MK_LLVM_LINK_STATIC_LIBRARIES} != no
 OLD_LIBS+=usr/lib/libprivatellvm.so.21
 .endif
@@ -3925,7 +3925,7 @@ OLD_FILES+=usr/share/man/man1/lldb-server.1.gz
 OLD_FILES+=usr/share/man/man1/lldb.1.gz
 .endif
 
-.if ${MK_LLVM_COV} == no
+.if ${MK_CLANG} == no
 OLD_FILES+=usr/bin/gcov
 OLD_FILES+=usr/bin/llvm-cov
 OLD_FILES+=usr/bin/llvm-profdata

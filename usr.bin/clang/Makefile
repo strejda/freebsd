@@ -62,7 +62,7 @@ SUBDIR+=	lld
 SUBDIR+=	lldb
 SUBDIR+=	lldb-server
 .endif
-.if ${MK_LLVM_COV} != "no"
+.if ${MK_CLANG} != "no"
 SUBDIR+=	llvm-cov
 SUBDIR+=	llvm-profdata
 SUBDIR_DEPEND_toolchain=	llvm-cov

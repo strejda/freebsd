@@ -2205,10 +2205,9 @@ SRCS_ALL+=	${SRCS_XDL}
 .if ${MK_CLANG_EXTRAS} != "no" || ${MK_LLDB} != "no" || !defined(TOOLS_PREFIX)
 SRCS_ALL+=	${SRCS_XDW}
 .endif
-.if ${MK_LLVM_COV} != "no"
+# LLVM_COV retired, just part of Clang now
 SRCS_ALL+=	${SRCS_COV}
-.endif
-.if ${MK_LLVM_COV} != "no" || ${MK_LLD} != "no" || \
+.if ${MK_LLD} != "no" || \
     (defined(TOOLS_PREFIX) && ${MK_LLD_BOOTSTRAP} != "no")
 SRCS_ALL+=	${SRCS_COL}
 .endif

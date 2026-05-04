@@ -7,10 +7,8 @@ SYMLINKS+=	llvm-ar ${BINDIR}/ar
 SYMLINKS+=	llvm-ranlib ${BINDIR}/ranlib
 MLINKS+=	llvm-ar.1 ar.1 llvm-ar.1 ranlib.1
 
-.if ${MK_LLVM_COV} != "no"
 SYMLINKS+=	llvm-cov ${BINDIR}/gcov
 MLINKS=		llvm-cov.1 gcov.1
-.endif
 
 SYMLINKS+=	llvm-cxxfilt ${BINDIR}/c++filt
 MLINKS+=	llvm-cxxfilt.1 c++filt.1
