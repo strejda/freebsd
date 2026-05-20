@@ -3429,7 +3429,7 @@
 		    int flags
 		);
 	}
-603	AUE_NULL	STD {
+603	AUE_PDOPENPID	STD {
 		int pdopenpid(
 		    pid_t pid,
 		    int flags
