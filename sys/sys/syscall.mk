@@ -444,4 +444,5 @@ MIASM =  \
 	kexec_load.o \
 	pdrfork.o \
 	pdwait.o \
-	renameat2.o
+	renameat2.o \
+	pdopenpid.o
