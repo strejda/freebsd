@@ -251,14 +251,29 @@ compile_nhgrp(struct nhgrp_priv *dst_priv, const struct weightened_nhop *x,
 	struct nhgrp_object *dst;
 	int i, slot_idx, remaining_slots;
 	uint64_t remaining_sum, nh_weight, nh_slots;
+	bool one_reachable = true;
 
 	slot_idx  = 0;
 	dst = dst_priv->nhg;
 	/* Calculate sum of all weights with lowest metric */
-	remaining_sum = 0;
+	remaining_sum = nh_weight = 0;
 	for (i = 0; i < dst_priv->nhg_nh_count; i++) {
-		if (nhop_get_metric(x[i].nh) == metric)
-			remaining_sum += x[i].weight;
+		if (nhop_get_metric(x[i].nh) == metric) {
+			/*
+			 * Temporary store weight of unreachable nhops in nh_weight
+			 * to ensure we have at least one reachable nexthop.
+			 */
+			if (NH_IS_VALID(x[i].nh))
+				remaining_sum += x[i].weight;
+			else
+				nh_weight += x[i].weight;
+		}
+	}
+
+	/* If no reachable nhops exist, include all */
+	if (remaining_sum == 0) {
+		remaining_sum = nh_weight;
+		one_reachable = false;
 	}
 
 	remaining_slots = num_slots;
@@ -268,14 +283,18 @@ compile_nhgrp(struct nhgrp_priv *dst_priv, const struct weightened_nhop *x,
 		if (nhop_get_metric(x[i].nh) != metric)
 			continue;
 
-		/* Calculate number of slots for the current nexthop */
-		if (remaining_sum > 0) {
+		/*
+		 * Calculate number of slots for the current nexthop.
+		 * Exclude unreachable nexthops if there is one reachable.
+		 */
+		if (remaining_sum > 0 &&
+		    (NH_IS_VALID(x[i].nh) || !one_reachable)) {
 			nh_weight = (uint64_t)x[i].weight;
 			nh_slots = (nh_weight * remaining_slots / remaining_sum);
+			remaining_sum -= x[i].weight;
 		} else
 			nh_slots = 0;
 
-		remaining_sum -= x[i].weight;
 		remaining_slots -= nh_slots;
 
 		FIB_NH_LOG(LOG_DEBUG3, x[0].nh,
@@ -1064,6 +1083,41 @@ nhgrp_get_count(struct rib_head *rh)
 	NHOPS_RUNLOCK(ctl);
 
 	return (count);
+}
+
+/*
+ * Recompile nexthop group without changing the slots.
+ * Since a nexthop might become reachable again soon,
+ * this avoids unnecessary memory allocation.
+ */
+static void
+nhgrp_recompile_one(struct nhgrp_priv *nhg_priv)
+{
+	struct nhgrp_object *nhg = nhg_priv->nhg;
+	const struct weightened_nhop *wn;
+	uint32_t num_nhops, min_metric;
+
+	wn = nhgrp_get_nhops(nhg, &num_nhops);
+
+	/* dataplane only has the lowest metric nhops, just pick one */
+	min_metric = nhop_get_metric(nhg->nhops[0]);
+	compile_nhgrp(nhg_priv, wn, nhg->nhg_size, min_metric);
+}
+
+void
+nhgrp_recompile(struct rib_head *rh)
+{
+	struct nh_control *ctl = rh->nh_control;
+	struct nhgrp_priv *nhg_priv;
+
+	NHOPS_WLOCK_ASSERT(ctl);
+
+	if (ctl->gr_head.items_count == 0)
+		return;
+
+	CHT_SLIST_FOREACH(&ctl->gr_head, mpath, nhg_priv) {
+		nhgrp_recompile_one(nhg_priv);
+	} CHT_SLIST_FOREACH_END;
 }
 
 int

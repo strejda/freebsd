@@ -312,6 +312,7 @@ int nhgrp_get_addition_group(struct rib_head *rnh,
 int nhgrp_get_merge_group(struct rib_head *rnh,
     struct route_nhop_data *rnd_orig, struct route_nhop_data *rnd_add,
     struct route_nhop_data *rnd_new);
+void nhgrp_recompile(struct rib_head *rh);
 
 void nhgrp_ref_object(struct nhgrp_object *nhg);
 uint32_t nhgrp_get_idx(const struct nhgrp_object *nhg);

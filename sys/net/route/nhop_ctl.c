@@ -1335,19 +1335,30 @@ nhops_ifnet_state_changed(struct ifnet *ifp, bool status)
 {
 	struct nhop_object *nh;
 	struct nhop_iter iter = { .fibnum = ifp->if_fib, .wlock = true };
+	bool nhops_changed;
 
 	for (iter.family = 1; iter.family <= AF_MAX; iter.family++) {
+		/*
+		 * By tracking nhop changes, we avoid redundant nhgrp
+		 * recompilation triggered by multiple events.
+		 */
+		nhops_changed = false;
 		iter.rh = rt_tables_get_rnh_safe(iter.fibnum, iter.family);
 		for (nh = nhops_iter_start(&iter); nh != NULL;
 		    nh = nhops_iter_next(&iter)) {
 			if (nh->nh_ifp != ifp)
 				continue;
 
-			if (status)
+			if (status && !NH_IS_VALID(nh)) {
 				nh->nh_flags &= ~NHF_INVALID;
-			else
+				nhops_changed = true;
+			} else if (!status && NH_IS_VALID(nh)) {
 				nh->nh_flags |= NHF_INVALID;
+				nhops_changed = true;
+			}
 		}
+		if (iter.rh != NULL && nhops_changed)
+			nhgrp_recompile(iter.rh);
 		nhops_iter_stop(&iter);
 	}
 }
