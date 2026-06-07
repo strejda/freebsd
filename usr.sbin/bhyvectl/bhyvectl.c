@@ -86,6 +86,7 @@ enum {
 #ifdef BHYVE_SNAPSHOT
 	SET_CHECKPOINT_FILE,
 	SET_SUSPEND_FILE,
+	SET_RUNDIR,
 #endif
 	OPT_LAST,
 };
@@ -138,6 +139,7 @@ setup_options(void)
 #ifdef BHYVE_SNAPSHOT
 		{ "checkpoint", 	REQ_ARG, 0,	SET_CHECKPOINT_FILE},
 		{ "suspend", 		REQ_ARG, 0,	SET_SUSPEND_FILE},
+		{ "rundir", 		REQ_ARG, 0,	SET_RUNDIR},
 #endif
 	};
 
@@ -155,6 +157,7 @@ usage(const struct option *opts)
 #ifdef BHYVE_SNAPSHOT
 	    [SET_CHECKPOINT_FILE] = "filename",
 	    [SET_SUSPEND_FILE] = "filename",
+	    [SET_RUNDIR] = "path",
 #endif
 	};
 	(void)fprintf(stderr, "Usage: %s --vm=<vmname>\n", progname);
@@ -252,10 +255,10 @@ show_memseg(struct vmctx *ctx)
 
 #ifdef BHYVE_SNAPSHOT
 static int
-send_message(const char *vmname, nvlist_t *nvl)
+send_message(const char *vmname, nvlist_t *nvl, const char *rundir)
 {
 	struct sockaddr_un addr;
-	int err = 0, socket_fd;
+	int err = 0, ret, socket_fd;
 
 	socket_fd = socket(PF_UNIX, SOCK_STREAM, 0);
 	if (socket_fd < 0) {
@@ -265,8 +268,15 @@ send_message(const char *vmname, nvlist_t *nvl)
 	}
 
 	memset(&addr, 0, sizeof(struct sockaddr_un));
-	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s%s",
-	    BHYVE_RUN_DIR, vmname);
+	ret = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s",
+	    rundir, vmname);
+	if ((ret < 0) || ((size_t)ret >= sizeof(addr.sun_path))) {
+		fprintf(stderr, "%s: error setting socket path (%d)",
+		    __func__, ret);
+		err = 1;
+		goto done;
+	}
+
 	addr.sun_family = AF_UNIX;
 	addr.sun_len = SUN_LEN(&addr);
 
@@ -305,7 +315,7 @@ open_directory(const char *file)
 }
 
 static int
-snapshot_request(const char *vmname, char *file, bool suspend)
+snapshot_request(const char *vmname, char *file, bool suspend, const char *rundir)
 {
 	nvlist_t *nvl;
 	int fd;
@@ -319,7 +329,7 @@ snapshot_request(const char *vmname, char *file, bool suspend)
 	nvlist_add_bool(nvl, "suspend", suspend);
 	nvlist_move_descriptor(nvl, "fddir", fd);
 
-	return (send_message(vmname, nvl));
+	return (send_message(vmname, nvl, rundir));
 }
 #endif
 
@@ -335,6 +345,7 @@ main(int argc, char *argv[])
 	struct option *opts;
 #ifdef BHYVE_SNAPSHOT
 	char *checkpoint_file = NULL;
+	char *rundir = NULL;
 #endif
 
 	opts = setup_options();
@@ -379,6 +390,11 @@ main(int argc, char *argv[])
 			checkpoint_file = optarg;
 			vm_suspend_opt = (ch == SET_SUSPEND_FILE);
 			break;
+
+		case SET_RUNDIR:
+			rundir = optarg;
+			break;
+
 #endif
 		default:
 			usage(opts);
@@ -528,7 +544,9 @@ main(int argc, char *argv[])
 
 #ifdef BHYVE_SNAPSHOT
 	if (!error && checkpoint_file)
-		error = snapshot_request(vmname, checkpoint_file, vm_suspend_opt);
+		error = snapshot_request(vmname, checkpoint_file,
+				vm_suspend_opt,
+				rundir ? rundir : BHYVE_RUN_DIR);
 #endif
 
 	if (error)

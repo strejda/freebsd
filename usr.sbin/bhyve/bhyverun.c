@@ -1068,7 +1068,7 @@ main(int argc, char *argv[])
 	/*
 	 * checkpointing thread for communication with bhyvectl
 	 */
-	if (init_checkpoint_thread(ctx) != 0)
+	if (init_checkpoint_thread(ctx, get_config_value("rundir")) != 0)
 		errx(EX_OSERR, "Failed to start checkpoint thread");
 #endif
 

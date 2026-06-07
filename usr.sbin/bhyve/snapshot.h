@@ -99,7 +99,7 @@ int vm_resume_devices(void);
 
 int get_checkpoint_msg(int conn_fd, struct vmctx *ctx);
 void *checkpoint_thread(void *param);
-int init_checkpoint_thread(struct vmctx *ctx);
+int init_checkpoint_thread(struct vmctx *ctx, const char *bhyve_run_dir);
 
 int load_restore_file(const char *filename, struct restore_state *rstate);
 
