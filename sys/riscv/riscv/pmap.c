@@ -2911,28 +2911,52 @@ retryl3:
 	PMAP_UNLOCK(pmap);
 }
 
+static pt_entry_t *
+pmap_fault_lookup(pmap_t pmap, vm_offset_t va)
+{
+	pd_entry_t *l2, l2e;
+
+	l2 = pmap_l2(pmap, va);
+	if (l2 == NULL || ((l2e = pmap_load(l2)) & PTE_V) == 0)
+		return (NULL);
+	if ((l2e & PTE_RWX) == 0)
+		return (pmap_l2_to_l3(l2, va));
+	return (l2);
+}
+
 int
 pmap_fault(pmap_t pmap, vm_offset_t va, vm_prot_t ftype)
 {
-	pd_entry_t *l2, l2e;
 	pt_entry_t bits, *pte, oldpte;
 	int rv;
 
 	KASSERT(VIRT_IS_VALID(va), ("pmap_fault: invalid va %#lx", va));
 
+	if (pmap == kernel_pmap) {
+		/*
+		 * Locking the kernel pmap while processing spurious faults
+		 * may lead to a panic since we might be running a critical section
+		 * or already holding the kernel pmap lock.
+		 * We deal with this by taking advantage of the fact that
+		 * kernel PTPs are never freed and performing a lockless lookup
+		 * to determine whether a valid mapping exits.
+		 */
+		pte = pmap_fault_lookup(pmap, va);
+		if (pte != NULL && (pmap_load(pte) & PTE_KERN) == PTE_KERN) {
+			sfence_vma_page(va);
+			return (1);
+		}
+		/*
+		 * The entry is either not present or missing some bits.
+		 * Fall back to the locked lookup below to handle the fault.
+		 */
+	}
+
 	rv = 0;
 	PMAP_LOCK(pmap);
-	l2 = pmap_l2(pmap, va);
-	if (l2 == NULL || ((l2e = pmap_load(l2)) & PTE_V) == 0)
+	pte = pmap_fault_lookup(pmap, va);
+	if (pte == NULL || ((oldpte = pmap_load(pte)) & PTE_V) == 0)
 		goto done;
-	if ((l2e & PTE_RWX) == 0) {
-		pte = pmap_l2_to_l3(l2, va);
-		if (((oldpte = pmap_load(pte)) & PTE_V) == 0)
-			goto done;
-	} else {
-		pte = l2;
-		oldpte = l2e;
-	}
 
 	if ((pmap != kernel_pmap && (oldpte & PTE_U) == 0) ||
 	    (ftype == VM_PROT_WRITE && (oldpte & PTE_W) == 0) ||
