@@ -207,6 +207,28 @@ union msg_gpiovirtbuf {
 	} resp;
 };
 
+#define BCM2835_FIRMWARE_GET_RTC_REG			0x00030087
+#define BCM2835_FIRMWARE_SET_RTC_REG			0x00038087
+
+#define	BCM2835_FIRMWARE_RTC_TIME		0
+#define	BCM2835_FIRMWARE_RTC_ALARM		1
+#define	BCM2835_FIRMWARE_RTC_ALARM_PENDING	2
+#define	BCM2835_FIRMWARE_RTC_ALARM_ENABLE	3
+#define	BCM2835_FIRMWARE_RTC_BBAT_CHG_VOLTS	4
+#define	BCM2835_FIRMWARE_RTC_BBAT_CHG_VOLTS_MIN	5
+#define	BCM2835_FIRMWARE_RTC_BBAT_CHG_VOLTS_MAX	6
+#define	BCM2835_FIRMWARE_RTC_BBAT_VOLTS		7
+
+union msg_rtcbuf {
+	struct {
+		uint32_t reg;
+		uint32_t val;
+	} req;
+	struct {
+		uint32_t reg;
+		uint32_t val;
+	} resp;
+};
 int bcm2835_firmware_property(device_t, uint32_t, void *, size_t);
 
 #endif
