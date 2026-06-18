@@ -3,12 +3,14 @@
 #
 
 # SoC support
+options 	SOC_BRCM_BCM2712
 options 	SOC_BRCM_BCM2837
 options 	SOC_BRCM_BCM2838
 options 	SOC_BRCM_NS2
 
 # I2C
 device		bcm2835_bsc		# Broadcom BCM283x I2C bus
+#device		dwc_i2c			# Designware I2C on RP1(RPi5)
 
 # SPI
 device		bcm2835_spi		# Broadcom BCM283x SPI bus
@@ -19,6 +21,7 @@ device		pl011
 
 # Ethernet NICs
 device		genet			# Broadcom on RPi4
+device		cgem			# Cadence GEM on RP1(RPi5)
 
 # USB support
 device		dwcotg
@@ -35,6 +38,7 @@ device		acpi
 
 # Sound support
 device		vchiq
+
 
 # DTBs
 makeoptions	MODULES_EXTRA+="dtb/rpi"
