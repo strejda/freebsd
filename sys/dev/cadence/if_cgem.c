@@ -98,9 +98,10 @@
 #define CGEM_CKSUM_ASSIST	(CSUM_IP | CSUM_TCP | CSUM_UDP | \
 				 CSUM_TCP_IPV6 | CSUM_UDP_IPV6)
 
-#define HWQUIRK_NONE		0
-#define HWQUIRK_NEEDNULLQS	1
-#define HWQUIRK_RXHANGWAR	2
+#define HWQUIRK_NONE		 0
+#define HWQUIRK_NEEDNULLQS	(1 << 0)
+#define HWQUIRK_RXHANGWAR	(1 << 1)
+#define HWQUIRK_HWCLK		(1 << 2)
 
 static struct ofw_compat_data compat_data[] = {
 	{ "cdns,zynq-gem",		HWQUIRK_RXHANGWAR }, /* Deprecated */
@@ -110,6 +111,7 @@ static struct ofw_compat_data compat_data[] = {
 	{ "microchip,mpfs-mss-gem",	HWQUIRK_NEEDNULLQS },
 	{ "sifive,fu540-c000-gem",	HWQUIRK_NONE },
 	{ "sifive,fu740-c000-gem",	HWQUIRK_NONE },
+	{ "raspberrypi,rp1-gem",	HWQUIRK_HWCLK},
 	{ NULL,				0 }
 };
 
@@ -131,8 +133,9 @@ struct cgem_softc {
 	clk_t			clk_txclk;
 	clk_t			clk_rxclk;
 	clk_t			clk_tsuclk;
-	int			neednullqs;
+	bool			neednullqs;
 	int			phy_contype;
+	bool			have_hwclk;
 
 	bus_dma_tag_t		desc_dma_tag;
 	bus_dma_tag_t		mbuf_dma_tag;
@@ -147,7 +150,7 @@ struct cgem_softc {
 	int			rxring_queued;	/* how many rcv bufs queued */
 	bus_dmamap_t		rxring_dma_map;
 	int			rxbufs;		/* tunable number rcv bufs */
-	int			rxhangwar;	/* rx hang work-around */
+	bool			rxhangwar;	/* rx hang work-around */
 	u_int			rxoverruns;	/* rx overruns */
 	u_int			rxnobufs;	/* rx buf ring empty events */
 	u_int			rxdmamapfails;	/* rx dmamap failures */
@@ -219,8 +222,6 @@ struct cgem_softc {
 
 #define RD4(sc, off)		(bus_read_4((sc)->mem_res, (off)))
 #define WR4(sc, off, val)	(bus_write_4((sc)->mem_res, (off), (val)))
-#define BARRIER(sc, off, len, flags) \
-	(bus_barrier((sc)->mem_res, (off), (len), (flags))
 
 #define CGEM_LOCK(sc)		mtx_lock(&(sc)->sc_mtx)
 #define CGEM_UNLOCK(sc)		mtx_unlock(&(sc)->sc_mtx)
@@ -241,12 +242,11 @@ static void cgem_intr(void *);
 static void cgem_mediachange(struct cgem_softc *, struct mii_data *);
 
 static void
-cgem_get_mac(struct cgem_softc *sc, u_char eaddr[])
+cgem_get_mac(struct cgem_softc *sc, if_t ifp, u_char eaddr[])
 {
 	int i;
-	uint32_t rnd;
 
-	/* See if boot loader gave us a MAC address already. */
+	/* Read actual MAC addres */
 	for (i = 0; i < 4; i++) {
 		uint32_t low = RD4(sc, CGEM_SPEC_ADDR_LOW(i));
 		uint32_t high = RD4(sc, CGEM_SPEC_ADDR_HI(i)) & 0xffff;
@@ -261,21 +261,8 @@ cgem_get_mac(struct cgem_softc *sc, u_char eaddr[])
 		}
 	}
 
-	/* No MAC from boot loader?  Assign a random one. */
-	if (i == 4) {
-		rnd = arc4random();
-
-		eaddr[0] = 'b';
-		eaddr[1] = 's';
-		eaddr[2] = 'd';
-		eaddr[3] = (rnd >> 16) & 0xff;
-		eaddr[4] = (rnd >> 8) & 0xff;
-		eaddr[5] = rnd & 0xff;
-
-		device_printf(sc->dev, "no mac address found, assigning "
-		    "random: %02x:%02x:%02x:%02x:%02x:%02x\n", eaddr[0],
-		    eaddr[1], eaddr[2], eaddr[3], eaddr[4], eaddr[5]);
-	}
+	/* Apply addresses or generate new one */
+	fdt_ether_get_macaddr(ofw_bus_get_node(sc->dev), ifp, eaddr);
 
 	/* Move address to first slot and zero out the rest. */
 	WR4(sc, CGEM_SPEC_ADDR_LOW(0), (eaddr[3] << 24) |
@@ -1498,7 +1485,7 @@ cgem_mediachange(struct cgem_softc *sc,	struct mii_data *mii)
 
 	WR4(sc, CGEM_NET_CFG, sc->net_cfg_shadow);
 
-	if (sc->clk_pclk != NULL) {
+	if (!sc->have_hwclk  && sc->clk_pclk != NULL) {
 		CGEM_UNLOCK(sc);
 		if (clk_set_freq(sc->clk_pclk, ref_clk_freq, 0))
 			device_printf(sc->dev, "could not set ref clk to %d\n",
@@ -1523,7 +1510,7 @@ cgem_add_sysctls(device_t dev)
 	SYSCTL_ADD_INT(ctx, child, OID_AUTO, "rxbufs", CTLFLAG_RW,
 	    &sc->rxbufs, 0, "Number receive buffers to provide");
 
-	SYSCTL_ADD_INT(ctx, child, OID_AUTO, "rxhangwar", CTLFLAG_RW,
+	SYSCTL_ADD_BOOL(ctx, child, OID_AUTO, "rxhangwar", CTLFLAG_RW,
 	    &sc->rxhangwar, 0, "Enable receive hang work-around");
 
 	SYSCTL_ADD_UINT(ctx, child, OID_AUTO, "_rxoverruns", CTLFLAG_RD,
@@ -1742,49 +1729,86 @@ cgem_attach(device_t dev)
 	/* Key off of compatible string and set hardware-specific options. */
 	hwquirks = ofw_bus_search_compatible(dev, compat_data)->ocd_data;
 	if ((hwquirks & HWQUIRK_NEEDNULLQS) != 0)
-		sc->neednullqs = 1;
+		sc->neednullqs = true;
 	if ((hwquirks & HWQUIRK_RXHANGWAR) != 0)
-		sc->rxhangwar = 1;
+		sc->rxhangwar = true;
+	if ((hwquirks & HWQUIRK_HWCLK) != 0)
+		sc->have_hwclk = true;
 	/*
 	 * Both pclk and hclk are mandatory but we don't have a proper
 	 * clock driver for Zynq so don't make it fatal if we can't
 	 * get them.
 	 */
-	if (clk_get_by_ofw_name(dev, 0, "pclk", &sc->clk_pclk) != 0)
-		device_printf(dev,
-		  "could not retrieve pclk.\n");
-	else {
-		if (clk_enable(sc->clk_pclk) != 0)
-			device_printf(dev, "could not enable pclk.\n");
+	err = clk_get_by_ofw_name(dev, 0, "pclk", &sc->clk_pclk);
+	if (err != 0 && err != ENODEV)
+		device_printf(dev,  "could not retrieve 'pclk'.\n");
+	if (err == 0) {
+		err = clk_enable(sc->clk_pclk);
+		if (err != 0) {
+			device_printf(dev, "could not enable 'pclk': %d.\n",
+			    err);
+			goto err;
+		}
 	}
-	if (clk_get_by_ofw_name(dev, 0, "hclk", &sc->clk_hclk) != 0)
-		device_printf(dev,
-		  "could not retrieve hclk.\n");
-	else {
-		if (clk_enable(sc->clk_hclk) != 0)
-			device_printf(dev, "could not enable hclk.\n");
+
+	err = clk_get_by_ofw_name(dev, 0, "hclk", &sc->clk_hclk);
+	if (err != 0 && err != ENODEV)
+		device_printf(dev,  "could not retrieve 'hclk'.\n");
+	if  (err == 0) {
+		err = clk_enable(sc->clk_hclk);
+		if (err != 0) {
+			device_printf(dev, "could not enable 'hclk': %d.\n",
+			    err);
+			goto err;
+		}
 	}
 
 	/* Optional clocks */
-	if (clk_get_by_ofw_name(dev, 0, "tx_clk", &sc->clk_txclk) == 0) {
-		if (clk_enable(sc->clk_txclk) != 0) {
-			device_printf(dev, "could not enable tx_clk.\n");
+	err = clk_get_by_ofw_name(dev, 0, "tx_clk", &sc->clk_txclk);
+	if (err !=  0 && err != ENOENT) {
+		device_printf(dev, "could not get 'tx_clk': %d\n", err);
+		err = ENXIO;
+		goto err;
+	}
+	if (err == 0) {
+		err = clk_enable(sc->clk_txclk);
+		if (err != 0) {
+			device_printf(dev, "could not enable 'tx_clk: %d\n",
+			    err);
 			err = ENXIO;
-			goto err_pclk;
+			goto err;
 		}
 	}
-	if (clk_get_by_ofw_name(dev, 0, "rx_clk", &sc->clk_rxclk) == 0) {
-		if (clk_enable(sc->clk_rxclk) != 0) {
-			device_printf(dev, "could not enable rx_clk.\n");
+
+	err = clk_get_by_ofw_name(dev, 0, "rx_clk", &sc->clk_rxclk);
+	if (err !=  0 && err != ENOENT) {
+		device_printf(dev, "could not get 'rx_clk': %d\n", err);
+		err = ENXIO;
+		goto err;
+	}
+	if (err == 0) {
+		err = clk_enable(sc->clk_rxclk);
+		if (err != 0) {
+			device_printf(dev, "could not enable 'rx_clk: %d\n",
+			    err);
 			err = ENXIO;
-			goto err_tx_clk;
+			goto err;
 		}
 	}
-	if (clk_get_by_ofw_name(dev, 0, "tsu_clk", &sc->clk_tsuclk) == 0) {
-		if (clk_enable(sc->clk_tsuclk) != 0) {
-			device_printf(dev, "could not enable tsu_clk.\n");
+
+	err = clk_get_by_ofw_name(dev, 0, "tsu_clk", &sc->clk_tsuclk);
+	if (err !=  0 && err != ENOENT) {
+		device_printf(dev, "could not get 'tsu_clk': %d\n", err);
+		err = ENXIO;
+		goto err;
+	}
+	if (err == 0) {
+		err = clk_enable(sc->clk_tsuclk);
+		if (err != 0) {
+			device_printf(dev, "could not enable 'tsu_clk: %d\n",
+			    err);
 			err = ENXIO;
-			goto err_rx_clk;
+			goto err;
 		}
 	}
 
@@ -1798,7 +1822,7 @@ cgem_attach(device_t dev)
 	if (sc->mem_res == NULL) {
 		device_printf(dev, "could not allocate memory resources.\n");
 		err = ENOMEM;
-		goto err_tsu_clk;
+		goto err;
 	}
 
 	/* Get IRQ resource. */
@@ -1853,7 +1877,7 @@ cgem_attach(device_t dev)
 	}
 
 	/* Get a MAC address. */
-	cgem_get_mac(sc, eaddr);
+	cgem_get_mac(sc, ifp, eaddr);
 
 	/* Start ticks. */
 	callout_init_mtx(&sc->tick_ch, &sc->sc_mtx, 0);
@@ -1873,21 +1897,17 @@ cgem_attach(device_t dev)
 
 	return (0);
 
-err_tsu_clk:
+err:
 	if (sc->clk_tsuclk)
 		clk_release(sc->clk_tsuclk);
-err_rx_clk:
 	if (sc->clk_rxclk)
 		clk_release(sc->clk_rxclk);
-err_tx_clk:
 	if (sc->clk_txclk)
 		clk_release(sc->clk_txclk);
-err_pclk:
 	if (sc->clk_pclk)
 		clk_release(sc->clk_pclk);
 	if (sc->clk_hclk)
 		clk_release(sc->clk_hclk);
-err:
 	return (err);
 }
 
