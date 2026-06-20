@@ -3747,6 +3747,13 @@ backout:
 	slp_state &= ~ACPI_SS_GPE_SET;
     }
     if ((slp_state & ACPI_SS_DEV_SUSPEND) != 0) {
+	/*
+	 * Record the resume time so a spurious power/sleep button press can be
+	 * ignored for a grace period afterward (see the comment before
+	 * ACPI_BUTTON_REPLAY_WINDOW).  This must be taken before
+	 * DEVICE_RESUME(), which re-initializes the EC that replays the press.
+	 */
+	sc->acpi_resume_sbt = getsbinuptime();
 	EVENTHANDLER_INVOKE(acpi_pre_dev_resume, stype);
 	DEVICE_RESUME(root_bus);
 	slp_state &= ~ACPI_SS_DEV_SUSPEND;
@@ -4138,6 +4145,37 @@ acpi_system_eventhandler_wakeup(struct acpi_softc *const sc,
 }
 
 /*
+ * Grace window after wakeup during which a power/sleep button press for suspend
+ * is ignored.  Some firmware wrongly reports the depress that caused the wakeup
+ * as an "S0 Power/Sleep Button Pressed" notify (value 0x80) instead of the
+ * spec-required "Device Wake" notify (0x02); honoring it re-enters sleep
+ * immediately after resume.  On the Framework Laptop 12 the replayed event
+ * arrives within ~620 ms of the recorded resume time, so a one-second window
+ * was chosen.  See https://bugs.freebsd.org/296243 for the traces, timing
+ * data, and analysis.
+ */
+#define	ACPI_BUTTON_REPLAY_WINDOW	SBT_1S
+
+static bool
+acpi_button_resume_replay(struct acpi_softc *sc, const char *which)
+{
+    sbintime_t elapsed;
+
+    if (sc->acpi_resume_sbt == 0)
+	return (false);
+    elapsed = getsbinuptime() - sc->acpi_resume_sbt;
+    if (elapsed < 0 || elapsed >= ACPI_BUTTON_REPLAY_WINDOW)
+	return (false);
+    if (bootverbose) {
+	device_printf(sc->acpi_dev,
+	    "ignoring %s button press %jd us after resume "
+	    "(firmware replayed the wake event)\n",
+	    which, (intmax_t)(elapsed / SBT_1US));
+    }
+    return (true);
+}
+
+/*
  * ACPICA Event Handlers (FixedEvent, also called from button notify handler)
  */
 void
@@ -4158,6 +4196,8 @@ acpi_event_power_button_sleep(struct acpi_softc *sc)
     ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
 
 #if defined(__amd64__) || defined(__i386__)
+    if (acpi_button_resume_replay(sc, "power"))
+	return_VALUE (ACPI_INTERRUPT_HANDLED);
     if (ACPI_FAILURE(AcpiOsExecute(OSL_NOTIFY_HANDLER,
 	(ACPI_OSD_EXEC_CALLBACK)acpi_invoke_sleep_eventhandler,
 	&sc->acpi_power_button_stype)))
@@ -4185,6 +4225,9 @@ UINT32
 acpi_event_sleep_button_sleep(struct acpi_softc *sc)
 {
     ACPI_FUNCTION_TRACE((char *)(uintptr_t)__func__);
+
+    if (acpi_button_resume_replay(sc, "sleep"))
+	return_VALUE (ACPI_INTERRUPT_HANDLED);
 
     if (ACPI_FAILURE(AcpiOsExecute(OSL_NOTIFY_HANDLER,
 	(ACPI_OSD_EXEC_CALLBACK)acpi_invoke_sleep_eventhandler,
