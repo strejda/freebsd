@@ -222,6 +222,7 @@ MAN=	aac.4 \
 	${_hptmv.4} \
 	${_hptnr.4} \
 	${_hptrr.4} \
+	hrfkill.4 \
 	hsctrl.4 \
 	htu21.4 \
 	${_hv_kvp.4} \

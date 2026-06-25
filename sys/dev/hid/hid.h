@@ -74,6 +74,7 @@
 #define	HUG_KEYBOARD		0x0006
 #define	HUG_KEYPAD		0x0007
 #define	HUG_MULTIAXIS_CNTROLLER	0x0008
+#define	HUG_RADIO_CONTROL       0x000c
 #define	HUG_X			0x0030
 #define	HUG_Y			0x0031
 #define	HUG_Z			0x0032
@@ -116,6 +117,7 @@
 #define	HUG_D_PAD_RIGHT		0x0092
 #define	HUG_D_PAD_LEFT		0x0093
 #define	HUG_APPLE_EJECT		0x00b8
+#define	HUG_RADIO_BUTTON        0x00c6
 
 /* Usages Digitizers */
 #define	HUD_UNDEFINED		0x0000
