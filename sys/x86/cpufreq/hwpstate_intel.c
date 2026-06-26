@@ -88,13 +88,13 @@ static device_method_t intel_hwpstate_methods[] = {
 #define RDMSR_ON_CPU(dev, msr, val)                        \
 	(x86_msr_op(msr,                                   \
 	    MSR_OP_RENDEZVOUS_ONE | MSR_OP_READ |          \
-		MSR_OP_CPUID(cpu_get_pcpu(dev)->pc_cpuid), \
+	    MSR_OP_CPUID(cpu_get_pcpuid(dev)),             \
 	    0, val));
 
 #define WRMSR_ON_CPU(dev, msr, val)                        \
 	x86_msr_op(msr,                                    \
 	    MSR_OP_RENDEZVOUS_ONE | MSR_OP_WRITE |         \
-		MSR_OP_CPUID(cpu_get_pcpu(dev)->pc_cpuid), \
+	    MSR_OP_CPUID(cpu_get_pcpuid(dev)),		   \
 	    val, NULL)
 
 struct hwp_softc {
@@ -146,7 +146,7 @@ hwp_has_error(u_int res, u_int err)
 
 struct get_cppc_regs_data {
 	/* Inputs */
-	struct hwp_softc *sc;
+	const struct hwp_softc *sc;
 	/* Outputs */
 	uint64_t enabled;
 	uint64_t caps;
@@ -185,10 +185,11 @@ get_cppc_regs_cb(void *args)
 }
 
 static inline void
-get_cppc_regs_one(struct hwp_softc *sc, struct get_cppc_regs_data *req)
+get_cppc_regs_one(const struct hwp_softc *const sc,
+    struct get_cppc_regs_data *const req)
 {
 	req->sc = sc;
-	smp_rendezvous_cpu(cpu_get_pcpu(sc->dev)->pc_cpuid,
+	smp_rendezvous_cpu(cpu_get_pcpuid(sc->dev),
 	    smp_no_rendezvous_barrier, get_cppc_regs_cb,
 	    smp_no_rendezvous_barrier, req);
 }
@@ -198,29 +199,22 @@ get_cppc_regs_one(struct hwp_softc *sc, struct get_cppc_regs_data *req)
 static int
 intel_hwp_dump_sysctl_handler(SYSCTL_HANDLER_ARGS)
 {
-	device_t dev;
-	struct pcpu *pc;
+	const struct hwp_softc *const sc = arg1;
+	const u_int cpuid = cpu_get_pcpuid(sc->dev);
 	struct sbuf *sb;
-	struct hwp_softc *sc;
 	struct get_cppc_regs_data data;
 	int ret = 0;
 
-	sc = (struct hwp_softc *)arg1;
-	dev = sc->dev;
-
-	pc = cpu_get_pcpu(dev);
-	if (pc == NULL)
-		return (ENXIO);
-
 	get_cppc_regs_one(sc, &data);
+
 	sb = sbuf_new(NULL, NULL, 1024, SBUF_FIXEDLEN | SBUF_INCLUDENUL);
 	sbuf_putc(sb, '\n');
 
 	if (hwp_has_error(data.res, HWP_ERROR_CPPC_ENABLE))
 		sbuf_printf(sb, "CPU%u: IA32_PM_ENABLE: " MSR_NOT_READ_MSG "\n",
-		    pc->pc_cpuid);
+		    cpuid);
 	else
-		sbuf_printf(sb, "CPU%d: HWP %sabled\n", pc->pc_cpuid,
+		sbuf_printf(sb, "CPU%d: HWP %sabled\n", cpuid,
 		    ((data.enabled & 1) ? "En" : "Dis"));
 
 	if (data.enabled == 0)
@@ -286,21 +280,14 @@ out:
 static int
 sysctl_epp_select(SYSCTL_HANDLER_ARGS)
 {
-	struct hwp_softc *sc;
-	device_t dev;
-	struct pcpu *pc;
+	const device_t dev = arg1;
+	struct hwp_softc *const sc = device_get_softc(dev);
 	uint64_t epb;
 	uint32_t val;
 	int ret;
 
-	dev = oidp->oid_arg1;
-	sc = device_get_softc(dev);
 	if (!sc->hwp_pref_ctrl && !sc->hwp_perf_bias)
 		return (ENODEV);
-
-	pc = cpu_get_pcpu(dev);
-	if (pc == NULL)
-		return (ENXIO);
 
 	if (sc->hwp_pref_ctrl) {
 		val = (sc->req & IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE) >> 24;
@@ -513,40 +500,34 @@ set_autonomous_hwp_send_one(struct hwp_softc *sc,
 }
 
 static int
-set_autonomous_hwp(struct hwp_softc *sc)
+set_autonomous_hwp(struct hwp_softc *const sc)
 {
-	struct pcpu *pc;
+	const device_t dev = sc->dev;
+	const u_int cpuid = cpu_get_pcpuid(dev);
 	struct set_autonomous_hwp_cb data;
-	device_t dev;
-
-	dev = sc->dev;
-
-	pc = cpu_get_pcpu(dev);
-	if (pc == NULL)
-		return (ENXIO);
 
 	set_autonomous_hwp_send_one(sc, &data);
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_ENABLE)) {
 		device_printf(dev, "Failed to enable HWP for cpu%d (%d)\n",
-		    pc->pc_cpuid, EFAULT);
+		    cpuid, EFAULT);
 		goto out;
 	}
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_REQUEST)) {
 		device_printf(dev,
 		    "Failed to read HWP request MSR for cpu%d (%d)\n",
-		    pc->pc_cpuid, EFAULT);
+		    cpuid, EFAULT);
 		goto out;
 	}
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_CAPS)) {
 		device_printf(dev,
 		    "Failed to read HWP capabilities MSR for cpu%d (%d)\n",
-		    pc->pc_cpuid, EFAULT);
+		    cpuid, EFAULT);
 		goto out;
 	}
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_REQUEST_WRITE)) {
 		device_printf(dev,
 		    "Failed to setup%s autonomous HWP for cpu%d\n",
-		    sc->hwp_pkg_ctrl_en ? " PKG" : "", pc->pc_cpuid);
+		    sc->hwp_pkg_ctrl_en ? " PKG" : "", cpuid);
 		goto out;
 	}
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_REQUEST_PKG))
@@ -566,6 +547,11 @@ intel_hwpstate_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
+	if (cpu_get_pcpu(dev) == NULL) {
+		device_printf(dev,
+		    "Parent bus does not provide a per-CPU structure!");
+		return (ENXIO);
+	}
 
 	/* eax */
 	if (cpu_power_eax & CPUTPM1_HWP_NOTIFICATION)
@@ -609,21 +595,16 @@ intel_hwpstate_detach(device_t dev)
 static int
 intel_hwpstate_get(device_t dev, struct cf_setting *set)
 {
-	struct pcpu *pc;
 	uint64_t rate;
 	int ret;
 
 	if (set == NULL)
 		return (EINVAL);
 
-	pc = cpu_get_pcpu(dev);
-	if (pc == NULL)
-		return (ENXIO);
-
 	memset(set, CPUFREQ_VAL_UNKNOWN, sizeof(*set));
 	set->dev = dev;
 
-	ret = cpu_est_clockrate(pc->pc_cpuid, &rate);
+	ret = cpu_est_clockrate(cpu_get_pcpuid(dev), &rate);
 	if (ret == 0)
 		set->freq = rate / 1000000;
 
@@ -698,7 +679,7 @@ static inline void
 hwpstate_resume_send_one(struct hwp_softc *sc, struct hwpstate_resume_cb *req)
 {
 	req->sc = sc;
-	smp_rendezvous_cpu(cpu_get_pcpu(sc->dev)->pc_cpuid,
+	smp_rendezvous_cpu(cpu_get_pcpuid(sc->dev),
 	    smp_no_rendezvous_barrier, hwpstate_resume_cb,
 	    smp_no_rendezvous_barrier, req);
 }
@@ -710,28 +691,24 @@ hwpstate_resume_send_one(struct hwp_softc *sc, struct hwpstate_resume_cb *req)
 static int
 intel_hwpstate_resume(device_t dev)
 {
+	const u_int cpuid = cpu_get_pcpuid(dev);
 	struct hwp_softc *sc;
-	struct pcpu *pc;
 	struct hwpstate_resume_cb data;
 
 	sc = device_get_softc(dev);
-
-	pc = cpu_get_pcpu(dev);
-	if (pc == NULL)
-		return (ENXIO);
 
 	hwpstate_resume_send_one(sc, &data);
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_ENABLE)) {
 		device_printf(dev,
 		    "Failed to enable HWP for cpu%d after suspend (%d)\n",
-		    pc->pc_cpuid, EFAULT);
+		    cpuid, EFAULT);
 		goto out;
 	}
 
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_REQUEST_WRITE)) {
 		device_printf(dev,
 		    "Failed to set%s autonomous HWP for cpu%d after suspend\n",
-		    sc->hwp_pkg_ctrl_en ? " PKG" : "", pc->pc_cpuid);
+		    sc->hwp_pkg_ctrl_en ? " PKG" : "", cpuid);
 		goto out;
 	}
 	if (hwp_has_error(data.flag, HWP_ERROR_CPPC_REQUEST_PKG)) {
@@ -744,7 +721,7 @@ intel_hwpstate_resume(device_t dev)
 		device_printf(dev,
 		    "Failed to set energy perf bias for cpu%d after "
 		    "suspend\n",
-		    pc->pc_cpuid);
+		    cpuid);
 	}
 
 out:
