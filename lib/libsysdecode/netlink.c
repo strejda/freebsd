@@ -12,8 +12,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "sysdecode.h"
+#include "support.h"
 
 /*
  * Decodes a buffer as a Netlink message stream.
@@ -22,6 +25,9 @@
  * Returns false if the data is malformed, allowing the caller
  * to fallback to a standard hex/string dump.
  */
+
+static struct name_table *family_table = NULL;
+static size_t num_family = 0;
 
 bool
 sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
@@ -40,6 +46,12 @@ sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
 	 */
 	if (nl->nlmsg_len < sizeof(struct nlmsghdr) || nl->nlmsg_len > remaining)
 		return (false);
+
+	if (family_table == NULL) {
+		family_table = malloc((num_family + 1) *
+		    sizeof(struct name_table));
+		family_table[num_family] = (struct name_table){0, NULL};
+	}
 
 	fprintf(fp, "netlink{");
 
@@ -124,12 +136,32 @@ sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
 				}
 			}
 
+			if (family_name && family_id &&
+			    !lookup_value(family_table, family_id)) {
+				num_family++;
+
+				family_table = realloc(family_table,
+				    (num_family + 1) *
+				    sizeof(struct name_table));
+				family_table[num_family - 1].val =
+				    family_id;
+				family_table[num_family - 1].str =
+				    strdup(family_name);
+
+				family_table[num_family] =
+				    (struct name_table){0, NULL};
+			}
+
 			fprintf(fp, "}");
 			break;
 		default:
 			fprintf(fp, "%u", nl->nlmsg_type);
 			break;
 		}
+
+		const char *family = lookup_value(family_table, nl->nlmsg_type);
+		if (family != NULL && strcmp(family, "pfctl") == 0)
+			fprintf(fp, ",pf={}");
 
 		/* Handle Alignment (Netlink messages are 4-byte aligned). */
 		size_t aligned_len = NLMSG_ALIGN(nl->nlmsg_len);
