@@ -29,6 +29,18 @@
 static struct name_table *family_table = NULL;
 static size_t num_family = 0;
 
+static void
+sysdecode_netlink_pf(FILE *fp, const struct genlmsghdr *genl)
+{
+	uint8_t cmd = genl->cmd;
+	const char *cmd_name = sysdecode_pfnl_cmd(cmd);
+
+	if (cmd_name != NULL)
+		fprintf(fp, "cmd=%s", cmd_name);
+	else
+		fprintf(fp, "cmd=%u", cmd);
+}
+
 bool
 sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
 {
@@ -160,8 +172,21 @@ sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
 		}
 
 		const char *family = lookup_value(family_table, nl->nlmsg_type);
-		if (family != NULL && strcmp(family, "pfctl") == 0)
-			fprintf(fp, ",pf={}");
+
+		if (family != NULL && protocol == NETLINK_GENERIC) {
+			fprintf(fp, ",%s={", family);
+
+			if (strcmp(family, "pfctl") == 0) {
+				const struct genlmsghdr *genl =
+				    (const struct genlmsghdr *)(const void *)
+				    ((const char *)nl +
+				    sizeof(struct nlmsghdr));
+
+				sysdecode_netlink_pf(fp, genl);
+			}
+
+			fprintf(fp, "}");
+		}
 
 		/* Handle Alignment (Netlink messages are 4-byte aligned). */
 		size_t aligned_len = NLMSG_ALIGN(nl->nlmsg_len);
