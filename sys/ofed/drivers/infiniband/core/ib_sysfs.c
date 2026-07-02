@@ -421,7 +421,7 @@ static ssize_t show_port_gid(struct ib_port *p, struct port_attribute *attr,
 		 * space throwing such error on fail to read gid, return zero
 		 * GID as before. This maintains backward compatibility.
 		 */
-		return sprintf(buf, "%pI6\n", zgid.raw);
+		return sprintf(buf, GID_PRINT_FMT"\n", GID_PRINT_ARGS(zgid.raw));
 	}
 
 	ret = sprintf(buf, GID_PRINT_FMT"\n", GID_PRINT_ARGS(gid_attr->gid.raw));
