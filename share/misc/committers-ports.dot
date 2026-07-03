@@ -169,6 +169,7 @@ brnrd [label="Bernard Spil\nbrnrd@FreeBSD.org\n2015/05/24"]
 brooks [label="Brooks Davies\nbrooks@FreeBSD.org\n2004/05/03"]
 cmt [label="Christoph Moench-Tegeder\ncmt@FreeBSD.org\n2016/03/01"]
 cperciva [label="Colin Percival\ncperciva@FreeBSD.org\n2006/01/31"]
+cracauer [label="Martin Cracauer\ncracauer@FreeBSD.org\n2026/06/28"]
 crees [label="Chris Rees\ncrees@FreeBSD.org\n2011/06/11"]
 cs [label="Carlo Strub\ncs@FreeBSD.org\n2011/09/13"]
 cy [label="Cy Schubert\ncy@FreeBSD.org\n2001/11/13"]
@@ -554,6 +555,8 @@ jadawin -> pi
 jadawin -> riggs
 jadawin -> sbz
 jadawin -> wen
+
+jbo -> cracauer
 
 joerg -> netchild
 
