@@ -572,16 +572,7 @@ autofs_node_new(struct autofs_node *parent, struct autofs_mount *amp,
 		anp->an_name = strdup(name, M_AUTOFS);
 	anp->an_fileno = atomic_fetchadd_int(&amp->am_last_fileno, 1);
 	callout_init(&anp->an_callout, 1);
-	/*
-	 * The reason for SX_NOWITNESS here is that witness(4)
-	 * cannot tell vnodes apart, so the following perfectly
-	 * valid lock order...
-	 *
-	 * vnode lock A -> autofsvlk B -> vnode lock B
-	 *
-	 * ... gets reported as a LOR.
-	 */
-	sx_init_flags(&anp->an_vnode_lock, "autofsvlk", SX_NOWITNESS);
+	sx_init(&anp->an_vnode_lock, "autofsvlk");
 	getnanotime(&anp->an_ctime);
 	anp->an_parent = parent;
 	anp->an_mount = amp;
@@ -645,6 +636,7 @@ autofs_node_vn(struct autofs_node *anp, struct mount *mp, int flags,
 {
 	struct vnode *vp;
 	int error;
+	enum vgetstate vs;
 
 	AUTOFS_ASSERT_UNLOCKED(anp->an_mount);
 
@@ -652,53 +644,53 @@ autofs_node_vn(struct autofs_node *anp, struct mount *mp, int flags,
 
 	vp = anp->an_vnode;
 	if (vp != NULL) {
-		error = vget(vp, flags | LK_RETRY);
-		if (error != 0) {
-			AUTOFS_WARN("vget failed with error %d", error);
-			sx_xunlock(&anp->an_vnode_lock);
-			return (error);
-		}
+lockvp:
+		vs = vget_prep(vp);
+		sx_xunlock(&anp->an_vnode_lock);
+		vget_finish(vp, flags | LK_RETRY, vs);
 		if (VN_IS_DOOMED(vp)) {
 			/*
 			 * We got forcibly unmounted.
 			 */
 			AUTOFS_DEBUG("doomed vnode");
-			sx_xunlock(&anp->an_vnode_lock);
 			vput(vp);
 
 			return (ENOENT);
 		}
 
 		*vpp = vp;
-		sx_xunlock(&anp->an_vnode_lock);
 		return (0);
 	}
+	sx_xunlock(&anp->an_vnode_lock);
 
 	error = getnewvnode("autofs", mp, &autofs_vnodeops, &vp);
-	if (error != 0) {
-		sx_xunlock(&anp->an_vnode_lock);
+	if (error != 0)
 		return (error);
-	}
 
 	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
 
 	vp->v_type = VDIR;
 	if (anp->an_parent == NULL)
 		vp->v_vflag |= VV_ROOT;
-	vp->v_data = anp;
-
 	VN_LOCK_ASHARE(vp);
 
 	error = insmntque(vp, mp);
 	if (error != 0) {
 		AUTOFS_DEBUG("insmntque() failed with error %d", error);
-		sx_xunlock(&anp->an_vnode_lock);
 		return (error);
 	}
 
-	KASSERT(anp->an_vnode == NULL, ("lost race"));
+	sx_xlock(&anp->an_vnode_lock);
+	if (anp->an_vnode != NULL) {
+		vp->v_op = &dead_vnodeops;
+		vp->v_data = NULL;
+		vgone(vp);
+		vput(vp);
+		vp = anp->an_vnode;
+		goto lockvp;
+	}
+	vp->v_data = anp;
 	anp->an_vnode = vp;
-
 	sx_xunlock(&anp->an_vnode_lock);
 
 	vn_set_state(vp, VSTATE_CONSTRUCTED);
