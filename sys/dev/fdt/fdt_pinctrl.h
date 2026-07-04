@@ -27,7 +27,11 @@
 #define DEV_FDT_PINCTRL_H
 
 #include "fdt_pinctrl_if.h"
-
+struct fdt_gpio_range;
+struct fdt_gpio_map {
+	struct fdt_gpio_range	*ranges;
+	int			nranges;
+};
 /*
  * Configure pins by name or index.  This looks up the pinctrl-N property in
  * client's fdt data by index or name, and passes each handle in it to the
@@ -51,6 +55,26 @@ int fdt_pinctrl_register(device_t pinctrl, const char *pinprop);
  * given pinctrl device.  This helper routine is for use by pinctrl drivers.
  */
 int fdt_pinctrl_configure_tree(device_t pinctrl);
+
+/*
+ * Register gpio-range - old, hardwired version
+ * - used  by pinctrl to register hardwired gpio range
+ * - old unpreffered way, 'gpio-range' propety shoud be used in DT
+ */
+int fdt_pinctrl_register_gpio_range(device_t pinctrl, const char* name,
+    uint32_t gpio_base, uint32_t pctrl_base, uint32_t npins);
+
+int fdt_pinctrl_get_gpio_map(device_t gpio, const char *name, uint32_t gpio_base,
+    uint32_t npins, struct fdt_gpio_map *map);
+
+int fdt_pinctrl_is_gpio(device_t gpio, struct fdt_gpio_map *map, uint32_t pin,
+    bool *is_gpio);
+
+int fdt_pinctrl_set_flags(device_t gpio, struct fdt_gpio_map *map, uint32_t pin,
+    uint32_t flags);
+
+int fdt_pinctrl_get_flags(device_t gpio, struct fdt_gpio_map *map, uint32_t pin,
+    uint32_t *flags);
 
 #endif /* DEV_FDT_PINCTRL_H */
 
