@@ -1573,17 +1573,17 @@ user_ptr32_to_psaddr(int32_t user_pointer)
  * Check whether a file descriptor belongs to an AF_NETLINK socket
  * for the current traced process.
  */
-static bool
-is_netlink(struct trussinfo *trussinfo, int num_fd)
+static int
+get_netlink_protocol(struct trussinfo *trussinfo, int num_fd)
 {
 	struct procinfo *p = trussinfo->curthread->proc;
 	struct fd_domain *f;
 
 	LIST_FOREACH(f, &p->fdlist, entries) {
 		if (f->fd == num_fd && f->domain == AF_NETLINK)
-			return (true);
+			return (f->protocol);
 	}
-	return (false);
+	return (-1);
 }
 
 #define NETLINK_MAX_DECODE 4096
@@ -1593,7 +1593,8 @@ is_netlink(struct trussinfo *trussinfo, int num_fd)
  * and attempt to decode and print it.
  */
 static bool
-print_netlink(FILE *fp, struct trussinfo *trussinfo, void *msg, size_t len)
+print_netlink(FILE *fp, struct trussinfo *trussinfo, void *msg, size_t len,
+    int protocol)
 {
 	char *buf;
 	pid_t pid = trussinfo->curthread->proc->pid;
@@ -1615,7 +1616,7 @@ print_netlink(FILE *fp, struct trussinfo *trussinfo, void *msg, size_t len)
 		return (false);
 	}
 
-	if (sysdecode_netlink(fp, buf, read_len)) {
+	if (sysdecode_netlink(fp, buf, read_len, protocol)) {
 		success = true;
 	}
 	free(buf);
@@ -1690,12 +1691,18 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 	}
 	case BinString: {
 		if ((strcmp(decode->name, "sendto") == 0 ||
-		    strcmp(decode->name, "recvfrom") == 0) &&
-		    is_netlink(trussinfo, (int)args[0]))
-			if (print_netlink(fp, trussinfo,
+		    strcmp(decode->name, "recvfrom") == 0)) {
+
+			int protocol =
+			    get_netlink_protocol(trussinfo, (int)args[0]);
+
+			if ((protocol != -1) &&
+			    print_netlink(fp, trussinfo,
 			    (void *)args[sc->offset],
-			    (size_t)args[sc->offset + 1]))
+			    (size_t)args[sc->offset + 1],
+			    protocol))
 				break;
+		}
 		/*
 		 * Binary block of data that might have printable characters.
 		 * XXX If type|OUT, assume that the length is the syscall's
@@ -2770,11 +2777,12 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 		print_sockaddr(fp, trussinfo, (uintptr_t)msghdr.msg_name, msghdr.msg_namelen);
 		fprintf(fp, ",%d,", msghdr.msg_namelen);
 		/* Attempt Netlink decode; fallback to standard iovec if it fails. */
-		if ((!is_netlink(trussinfo, (int)args[0])) ||
+		int protocol = get_netlink_protocol(trussinfo, (int)args[0]);
+		if ((protocol == -1) ||
 		    (get_struct(pid, (uintptr_t)msghdr.msg_iov,
 		    &iov, sizeof(iov)) == -1) ||
 		    (!print_netlink(fp, trussinfo, (void *)iov.iov_base,
-		    (size_t)iov.iov_len))) {
+		    (size_t)iov.iov_len, protocol))) {
 			print_iovec(fp, trussinfo, (uintptr_t)msghdr.msg_iov,
 			    msghdr.msg_iovlen);
 		}

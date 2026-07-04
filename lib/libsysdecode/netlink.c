@@ -21,7 +21,7 @@
  * to fallback to a standard hex/string dump.
  */
 bool
-sysdecode_netlink(FILE *fp, const void *buf, size_t len)
+sysdecode_netlink(FILE *fp, const void *buf, size_t len, int protocol)
 {
 	const struct nlmsghdr *nl = buf;
 	size_t remaining = len;

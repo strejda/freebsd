@@ -100,6 +100,7 @@ struct fd_domain
 
 	int fd;
 	int domain;
+	int protocol;
 };
 
 struct procinfo {

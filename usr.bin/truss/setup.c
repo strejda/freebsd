@@ -587,6 +587,7 @@ exit_syscall(struct trussinfo *info, struct ptrace_lwpinfo *pl)
 
 		f->fd = (int)psr.sr_retval[0];
 		f->domain = (int)t->cs.args[0];
+		f->protocol = (int)t->cs.args[2];
 
 		LIST_INSERT_HEAD(&p->fdlist, f, entries);
 	}
