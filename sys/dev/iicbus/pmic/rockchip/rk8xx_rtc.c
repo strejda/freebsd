@@ -145,7 +145,7 @@ rk8xx_settime(device_t dev, struct timespec *ts)
 	if (error != 0)
 		return (error);
 
-	error = rk8xx_write(dev, sc->rtc_regs.secs, data, 7);
+	error = rk8xx_write(dev, sc->rtc_regs.secs, data, nitems(data));
 	ctrl &= ~sc->rtc_regs.ctrl_stop_mask;
 	rk8xx_write(dev, sc->rtc_regs.ctrl, &ctrl, 1);
 
