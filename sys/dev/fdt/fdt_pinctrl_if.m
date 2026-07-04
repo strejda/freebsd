@@ -37,7 +37,8 @@ INTERFACE fdt_pinctrl;
 
 CODE {
 	static int
-	fdt_pinctrl_default_is_gpio(device_t pinctrl, device_t gpio, bool *is_gpio)
+	fdt_pinctrl_default_is_gpio(device_t pinctrl, device_t gpio, uint32_t pin,
+	    bool *is_gpio)
 	{
 
 		return (EOPNOTSUPP);
