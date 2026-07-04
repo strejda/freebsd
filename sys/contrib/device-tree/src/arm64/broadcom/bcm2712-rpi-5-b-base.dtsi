@@ -65,7 +65,18 @@
 				firmware = <&firmware>;
 				#power-domain-cells = <1>;
 			};
+<<<<<<< HEAD
 		};
+=======
+
+			rpi_rtc: rpi_rtc {
+				compatible = "raspberrypi,rpi-rtc";
+				firmware = <&firmware>;
+				trickle-charge-microvolt = <0>;
+			};
+		};
+	
+>>>>>>> dbf919a06946 (device tree: import RPI5 changes from Linux 7.1)
 	};
 
 	sd_io_1v8_reg: sd-io-1v8-reg {
