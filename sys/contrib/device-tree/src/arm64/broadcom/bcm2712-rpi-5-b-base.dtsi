@@ -65,6 +65,12 @@
 				firmware = <&firmware>;
 				#power-domain-cells = <1>;
 			};
+
+			rpi_rtc: rpi_rtc {
+				compatible = "raspberrypi,rpi-rtc";
+				firmware = <&firmware>;
+				trickle-charge-microvolt = <0>;
+			};
 		};
 	};
 
