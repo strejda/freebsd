@@ -1,4 +1,4 @@
-# $Id: sys.dirdeps.mk,v 1.20 2026/04/24 19:56:01 sjg Exp $
+# $Id: sys.dirdeps.mk,v 1.21 2026/05/22 00:32:40 sjg Exp $
 #
 #	@(#) Copyright (c) 2012-2023, Simon J. Gerraty
 #
@@ -15,8 +15,8 @@
 # Include from [local.]sys.mk - if doing DIRDEPS_BUILD
 # we should not be here otherwise
 MK_DIRDEPS_BUILD ?= yes
-MK_META_AUTODEP ?= yes
 # these are all implied
+MK_META_AUTODEP ?= yes
 MK_AUTO_OBJ ?= yes
 MK_META_MODE ?= yes
 MK_STAGING ?= yes

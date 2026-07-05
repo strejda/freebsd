@@ -1,3 +1,37 @@
+2026-07-04  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20260704
+
+2026-07-03  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* dirdeps.mk: make use of alternation support in latest bmake
+	when setting .MAKE.META.IGNORE_FILTER so we can get both
+	Makefile.depend* and *.mk to make cache out-of-date.
+
+2026-07-02  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* meta2deps.py: detect corrupted filemon data on Linux,
+	caused by lost newlines.
+
+2026-06-21  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20260621
+
+	* gendirdeps.mk: more debug output
+
+	* meta.autodep.mk: remove extra } from GENDIRDEPS_ENV
+
+2026-06-19  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* install-mk (MK_VERSION): 20260619
+
+	* install-new.mk: for POSIX_SHELL we need .new*
+	rather than just .new
+
+2026-05-21  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* meta2deps.{py,sh}: skip pathnames with spaces - not worth the pain.
+
 2026-05-09  Simon J Gerraty  <sjg@beast.crufty.net>
 
 	* gendirdeps.mk: also apply ':S,/$,,' and ':C,/(\.[^.]*)$,\1,'

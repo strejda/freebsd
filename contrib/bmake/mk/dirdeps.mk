@@ -1,4 +1,4 @@
-# $Id: dirdeps.mk,v 1.178 2026/05/09 20:33:46 sjg Exp $
+# $Id: dirdeps.mk,v 1.179 2026/07/03 15:46:16 sjg Exp $
 
 # SPDX-License-Identifier: BSD-2-Clause
 #
@@ -570,7 +570,11 @@ M_oneperline = @x@\\${.newline}	$$x@
 BUILD_DIRDEPS = no
 
 # ignore anything but these
+.if ${MAKE_VERSION} > 20260702
+.MAKE.META.IGNORE_FILTER = M*{/${.MAKE.DEPENDFILE_PREFIX}*,.mk}
+.else
 .MAKE.META.IGNORE_FILTER = M*/${.MAKE.DEPENDFILE_PREFIX}*
+.endif
 
 dirdeps: dirdeps-cached
 dirdeps-cached:	${DIRDEPS_CACHE} .MAKE
