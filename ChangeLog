@@ -1,3 +1,37 @@
+2026-07-04  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* VERSION (_MAKE_VERSION): 20260704
+
+2026-07-03  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* VERSION (_MAKE_VERSION): 20260703
+	Merge with NetBSD make, pick up
+	o meta.c: do a better job of resolving relative paths
+	o var.c: add alternation support to :M
+	eg. :M*{Makefile*,.mk} matches any *Makefile* or *.mk
+
+2026-07-02  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* VERSION (_MAKE_VERSION): 20260702
+	Merge with NetBSD make, pick up
+	o meta.c: .MAKE.META.FILTER can be used to more generally filter
+	relevant content of .meta file in meta_oodate.
+
+2026-06-19  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* VERSION (_MAKE_VERSION): 20260619
+	Merge with NetBSD make, pick up
+	o make.1: fix description of .MADE it is a source not a target.
+
+	* update mk files
+
+2026-06-10  Simon J Gerraty  <sjg@beast.crufty.net>
+
+	* VERSION (_MAKE_VERSION): 20260609
+	Merge with NetBSD make, pick up
+	o parse.c: allow semicolons and parentheses in dependency line
+	expressions
+
 2026-05-08  Simon J Gerraty  <sjg@beast.crufty.net>
 
 	* VERSION (_MAKE_VERSION): 20260508
