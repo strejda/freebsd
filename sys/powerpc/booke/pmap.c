@@ -2484,11 +2484,14 @@ mmu_booke_page_array_startup(long pages)
 static __inline void
 tid_set_busy(int cpu, int tid, pmap_t pmap)
 {
-	tidbusy[cpu * (tid_max + 1) + tid] = pmap;
-	if (pmap == NULL)
-		pmap->pm_tid[cpu] = TID_NONE;
-	else
+	volatile pmap_t *pm = &tidbusy[cpu * (tid_max + 1) + tid];
+
+	if (pmap == NULL) {
+		if (*pm != NULL)
+			(*pm)->pm_tid[cpu] = TID_NONE;
+	} else
 		pmap->pm_tid[cpu] = tid;
+	*pm = pmap;
 }
 
 static __inline pmap_t
@@ -2522,7 +2525,7 @@ tid_alloc(pmap_t pmap)
 	/* If we are stealing TID then clear the relevant pmap's field */
 	if (tid_get_busy(thiscpu, tid) != NULL) {
 		CTR2(KTR_PMAP, "%s: warning: stealing tid %d", __func__, tid);
-		
+
 		tid_set_busy(thiscpu, tid, NULL);
 
 		/* Flush all entries from TLB0 matching this TID. */
