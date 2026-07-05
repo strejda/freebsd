@@ -939,8 +939,6 @@ static void
 tid_flush(tlbtid_t tid)
 {
 	register_t msr;
-	uint32_t mas0, mas1, mas2;
-	int entry, way;
 
 	/* Don't evict kernel translations */
 	if (tid == TID_KERNEL)
@@ -963,26 +961,8 @@ tid_flush(tlbtid_t tid)
 		__asm __volatile("wrtee %0" :: "r"(msr));
 		return;
 	}
+	/* Flash invalidate TLB0 instead of walking the TLB to invalidate. */
+	mtspr(SPR_MMUCSR0, MMUCSR0_L2TLB0_FI);
 
-	for (way = 0; way < TLB0_WAYS; way++)
-		for (entry = 0; entry < TLB0_ENTRIES_PER_WAY; entry++) {
-			mas0 = MAS0_TLBSEL(0) | MAS0_ESEL(way);
-			mtspr(SPR_MAS0, mas0);
-
-			mas2 = entry << MAS2_TLB0_ENTRY_IDX_SHIFT;
-			mtspr(SPR_MAS2, mas2);
-
-			__asm __volatile("isync; tlbre");
-
-			mas1 = mfspr(SPR_MAS1);
-
-			if (!(mas1 & MAS1_VALID))
-				continue;
-			if (((mas1 & MAS1_TID_MASK) >> MAS1_TID_SHIFT) != tid)
-				continue;
-			mas1 &= ~MAS1_VALID;
-			mtspr(SPR_MAS1, mas1);
-			__asm __volatile("isync; tlbwe; isync; msync");
-		}
 	__asm __volatile("wrtee %0" :: "r"(msr));
 }
