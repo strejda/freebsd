@@ -358,7 +358,7 @@ def pending(repo, upstream, author=None, baking=False):
 
 def cherry_pick(commit, edit=False):
     """Cherry-pick a single commit with -x.  Abort on failure."""
-    cmd = ['git', 'cherry-pick', '-x']
+    cmd = ['git', 'cherry-pick', '-x', '-m1']
     if edit:
         cmd.append('-e')
     cmd.append(commit.hexsha)
