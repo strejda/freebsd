@@ -229,6 +229,12 @@ struct hypctx {
 	uint64_t	hfgrtr2_el2;
 	uint64_t	hfgwtr2_el2;
 
+	/* Storage for *host* timer registers */
+	struct {
+		uint64_t cnthctl_el2;
+		uint64_t cntvoff_el2;
+	} host_timer_regs;
+
 	struct hyp	*hyp;
 	struct vcpu	*vcpu;
 	struct {
