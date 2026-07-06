@@ -55,10 +55,6 @@ reset_vm_el01_regs(void *vcpu)
 
 	set_arch_unknown(el2ctx->tf);
 
-	set_arch_unknown(el2ctx->csselr_el1);
-	set_arch_unknown(el2ctx->mdccint_el1);
-	set_arch_unknown(el2ctx->par_el1);
-
 	/*
 	 * Guest starts with:
 	 * ~SCTLR_M: MMU off
@@ -70,29 +66,9 @@ reset_vm_el01_regs(void *vcpu)
 	*hypctx_sys_reg(el2ctx, SCTLR_EL1) &= ~SCTLR_M & ~SCTLR_C & ~SCTLR_I;
 	*hypctx_sys_reg(el2ctx, SCTLR_EL1) |= SCTLR_CP15BEN;
 
-	set_arch_unknown(el2ctx->sp_el0);
-	set_arch_unknown(el2ctx->tpidr_el0);
-	set_arch_unknown(el2ctx->tpidr_el1);
-	set_arch_unknown(el2ctx->tpidrro_el0);
-
-	set_arch_unknown(el2ctx->dbgbcr_el1);
-	set_arch_unknown(el2ctx->dbgbvr_el1);
-	set_arch_unknown(el2ctx->dbgwcr_el1);
-	set_arch_unknown(el2ctx->dbgwvr_el1);
-
-	el2ctx->pmcr_el0 = READ_SPECIALREG(pmcr_el0) & PMCR_N_MASK;
-	/* PMCR_LC is unknown when AArch32 is supported or RES1 otherwise */
-	el2ctx->pmcr_el0 |= PMCR_LC;
-	set_arch_unknown(el2ctx->pmccntr_el0);
-	set_arch_unknown(el2ctx->pmccfiltr_el0);
-	set_arch_unknown(el2ctx->pmuserenr_el0);
-	set_arch_unknown(el2ctx->pmselr_el0);
-	set_arch_unknown(el2ctx->pmxevcntr_el0);
-	set_arch_unknown(el2ctx->pmcntenset_el0);
-	set_arch_unknown(el2ctx->pmintenset_el1);
-	set_arch_unknown(el2ctx->pmovsset_el0);
-	memset(el2ctx->pmevcntr_el0, 0, sizeof(el2ctx->pmevcntr_el0));
-	memset(el2ctx->pmevtyper_el0, 0, sizeof(el2ctx->pmevtyper_el0));
+	hypctx_write_sys_reg(el2ctx, PMCR_EL0,
+	    /* PMCR_LC is unknown when AArch32 is supported or RES1 otherwise */
+	    (READ_SPECIALREG(pmcr_el0) & PMCR_N_MASK) | PMCR_LC);
 }
 
 void
@@ -133,7 +109,7 @@ reset_vm_el2_regs(void *vcpu)
 	el2ctx->mdcr_el2 = MDCR_EL2_TDOSA | MDCR_EL2_TDRA | MDCR_EL2_TPMS |
 	    MDCR_EL2_TTRF;
 	/* PMCR_EL0.N is read from MDCR_EL2.HPMN */
-	el2ctx->mdcr_el2 |= (el2ctx->pmcr_el0 & PMCR_N_MASK) >> PMCR_N_SHIFT;
+	el2ctx->mdcr_el2 |= (hypctx_read_sys_reg(el2ctx, PMCR_EL0) & PMCR_N_MASK) >> PMCR_N_SHIFT;
 
 	el2ctx->vmpidr_el2 = VMPIDR_EL2_RES1;
 	/* The guest will detect a multi-core, single-threaded CPU */

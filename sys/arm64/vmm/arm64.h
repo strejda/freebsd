@@ -48,7 +48,49 @@ struct vgic_v3_cpu;
 /* Retrieve the VNCR offset from the enum value */
 #define REG_VNCR_OFFSET(val) ((val - VNCR_START) * 8)
 
+/* Accessors for indices of PME and DBG registers */
+#define PMEVCNTR_EL0(n) (PMEVCNTR0_EL0 + MIN(n, 30))
+#define PMEVTYPER_EL0(n) (PMEVTYPER0_EL0 + MIN(n, 30))
+#define DBGBCR_EL1(n) (DBGBCR0_EL1 + MIN(n, 15))
+#define DBGBVR_EL1(n) (DBGBVR0_EL1 + MIN(n, 15))
+#define DBGWCR_EL1(n) (DBGWCR0_EL1 + MIN(n, 15))
+#define DBGWVR_EL1(n) (DBGWVR0_EL1 + MIN(n, 15))
+
 enum hypctx_sysreg {
+	CSSELR_EL1,  /* Cache Size Selection Register */
+	MDCCINT_EL1, /* Monitor DCC Interrupt Enable Register */
+	PAR_EL1,     /* Physical Address Register */
+
+	/* PMU Registers */
+	PMCR_EL0,	/* Performance Monitors Control Register */
+	PMCCNTR_EL0,
+	PMCCFILTR_EL0,
+	PMUSERENR_EL0,
+	PMSELR_EL0,
+	PMXEVCNTR_EL0,
+	PMCNTENSET_EL0,
+	PMINTENSET_EL1,
+	PMOVSSET_EL0,
+	/* Access these through macros defined above, e.g. PMEVCNTR_EL0(5) */
+	PMEVCNTR0_EL0,
+	PMEVCNTR30_EL0 = PMEVCNTR0_EL0 + 30,
+	PMEVTYPER0_EL0,
+	PMEVTYPER30_EL0 = PMEVTYPER0_EL0 + 30,
+
+	/* DBG Registers */
+	DBGCLAIMSET_EL1,
+	/* Access these through macros defined above, e.g. DBGBCR_EL1(5) */
+	DBGBCR0_EL1,	/* Debug Breakpoint Control Registers */
+	DBGBCR15_EL1 = DBGBCR0_EL1 + 15,
+	DBGBVR0_EL1,	/* Debug Breakpoint Value Registers */
+	DBGBVR15_EL1 = DBGBVR0_EL1 + 15,
+	DBGWCR0_EL1,	/* Debug Watchpoint Control Registers */
+	DBGWCR15_EL1 = DBGWCR0_EL1 + 15,
+	DBGWVR0_EL1,	/* Debug Watchpoint Value Registers */
+	DBGWVR15_EL1 = DBGWVR0_EL1 + 15,
+
+	NR_NON_VNCR_REGS,
+
 	/* VNCR Registers */
 	VNCR_START,
 
@@ -140,6 +182,16 @@ enum hypctx_sysreg {
 	VNCR_REG(GCSCR_EL1),
 	VNCR_REG(BRBCR_EL1),
 	VNCR_REG(SPMACCESSR_EL1),
+
+	/* Virtual-address-sized registers */
+	VA_REGS_START,
+
+	SP_EL0,	     /* Stack pointer */
+	TPIDR_EL0,   /* EL0 Software ID Register */
+	TPIDRRO_EL0, /* Read-only Thread ID Register */
+	TPIDR_EL1,   /* EL1 Software ID Register */
+
+	VA_REGS_END,
 };
 
 /*
@@ -147,37 +199,12 @@ enum hypctx_sysreg {
  */
 struct hypctx {
 	struct trapframe tf;
+	/* Virtual-address-sized registers */
+	uint64_t va_regs[VA_REGS_END - VA_REGS_START - 1];
+	/* Non-VNCR guest register state */
+	uint64_t sys_regs[NR_NON_VNCR_REGS];
 
-	/*
-	 * EL1 & EL0 registers.
-	 */
-	uint64_t	sp_el0;		/* Stack pointer */
-	uint64_t	tpidr_el0;	/* EL0 Software ID Register */
-	uint64_t	tpidrro_el0;	/* Read-only Thread ID Register */
-	uint64_t	tpidr_el1;	/* EL1 Software ID Register */
-	uint64_t	csselr_el1;	/* Cache Size Selection Register */
-	uint64_t	mdccint_el1;	/* Monitor DCC Interrupt Enable Register */
-	uint64_t	par_el1;	/* Physical Address Register */
-
-	uint64_t	pmcr_el0;	/* Performance Monitors Control Register */
-	uint64_t	pmccntr_el0;
-	uint64_t	pmccfiltr_el0;
-	uint64_t	pmuserenr_el0;
-	uint64_t	pmselr_el0;
-	uint64_t	pmxevcntr_el0;
-	uint64_t	pmcntenset_el0;
-	uint64_t	pmintenset_el1;
-	uint64_t	pmovsset_el0;
-	uint64_t	pmevcntr_el0[31];
-	uint64_t	pmevtyper_el0[31];
-
-	uint64_t	dbgclaimset_el1;
-	uint64_t	dbgbcr_el1[16];	/* Debug Breakpoint Control Registers */
-	uint64_t	dbgbvr_el1[16];	/* Debug Breakpoint Value Registers */
-	uint64_t	dbgwcr_el1[16];	/* Debug Watchpoint Control Registers */
-	uint64_t	dbgwvr_el1[16];	/* Debug Watchpoint Value Registers */
-
-	/* EL2 control registers */
+	/* EL2 registers which we use to control the guest but do not expose to it */
 	uint64_t	cptr_el2;	/* Architectural Feature Trap Register */
 	uint64_t	hcr_el2;	/* Hypervisor Configuration Register */
 	uint64_t	hcrx_el2;	/* Extended Hypervisor Configuration Register */
@@ -242,13 +269,21 @@ struct hypctx {
 	((uint64_t *)((char *)hypctx->vncr_regs + REG_VNCR_OFFSET(reg)))
 #endif
 
+#ifndef __hypctx_va_sysreg
+#define __hypctx_va_sysreg(hypctx, reg)		\
+	(&hypctx->va_regs[reg - VA_REGS_START - 1])
+#endif
+
 static inline uint64_t *
 hypctx_sys_reg(struct hypctx *hypctx, int reg /* enum hypctx_sysreg  */)
 {
+	/* Extract this into a separate helper when we actually support 128-bit regs */
+	if (reg > VA_REGS_START)
+		return (__hypctx_va_sysreg(hypctx, reg));
 	if (reg > VNCR_START)
 		return (__hypctx_vncr_sysreg(hypctx, reg));
-	/* TODO: uniform handling for non-VNCR registers */
-	return (NULL);
+	/* Calling this with reg=VNCR_START or reg=NR_NON_VNCR_REGS is a bad idea */
+	return (&hypctx->sys_regs[reg]);
 }
 
 static inline void
