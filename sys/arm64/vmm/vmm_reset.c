@@ -53,8 +53,6 @@ reset_vm_el01_regs(void *vcpu)
 
 	el2ctx = vcpu;
 
-	set_arch_unknown(el2ctx->tf);
-
 	/*
 	 * Guest starts with:
 	 * ~SCTLR_M: MMU off
@@ -152,9 +150,9 @@ reset_vm_el2_regs(void *vcpu)
 	 * Disable interrupts in the guest. The guest OS will re-enable
 	 * them.
 	 */
-	el2ctx->tf.tf_spsr = PSR_D | PSR_A | PSR_I | PSR_F;
+	hypctx_write_sys_reg(el2ctx, HOST_SPSR_EL2, PSR_D | PSR_A | PSR_I | PSR_F);
 	/* Use the EL1 stack when taking exceptions to EL1 */
-	el2ctx->tf.tf_spsr |= PSR_M_EL1h;
+	*hypctx_sys_reg(el2ctx, HOST_SPSR_EL2) |= PSR_M_EL1h;
 
 	/* FEAT_FGT traps */
 	if ((el2ctx->hyp->feats & HYP_FEAT_FGT) != 0) {

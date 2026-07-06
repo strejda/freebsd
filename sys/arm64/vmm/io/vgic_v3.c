@@ -503,7 +503,7 @@ vgic_v3_cpuinit(device_t dev, struct hypctx *hypctx)
 	 *
 	 * Maintenance interrupts are disabled.
 	 */
-	hypctx->vgic_v3_regs.ich_hcr_el2 = ICH_HCR_EL2_En;
+	hypctx_write_sys_reg(hypctx, HOST_ICH_HCR_EL2, ICH_HCR_EL2_En);
 
 	/*
 	 * Configure the Interrupt Controller Virtual Machine Control Register.
@@ -518,20 +518,21 @@ vgic_v3_cpuinit(device_t dev, struct hypctx *hypctx)
 	 * ICH_VMCR_EL2_VENG0: virtual Group 0 interrupts enabled.
 	 * ICH_VMCR_EL2_VENG1: virtual Group 1 interrupts enabled.
 	 */
-	hypctx->vgic_v3_regs.ich_vmcr_el2 =
+	hypctx_write_sys_reg(hypctx, HOST_ICH_VMCR_EL2,
 	    (virt_features.min_prio << ICH_VMCR_EL2_VPMR_SHIFT) |
-	    ICH_VMCR_EL2_VBPR1_NO_PREEMPTION | ICH_VMCR_EL2_VBPR0_NO_PREEMPTION;
-	hypctx->vgic_v3_regs.ich_vmcr_el2 &= ~ICH_VMCR_EL2_VEOIM;
-	hypctx->vgic_v3_regs.ich_vmcr_el2 |= ICH_VMCR_EL2_VENG0 |
+		ICH_VMCR_EL2_VBPR1_NO_PREEMPTION |
+			ICH_VMCR_EL2_VBPR0_NO_PREEMPTION);
+	*hypctx_sys_reg(hypctx, HOST_ICH_VMCR_EL2) &= ~ICH_VMCR_EL2_VEOIM;
+	*hypctx_sys_reg(hypctx, HOST_ICH_VMCR_EL2) |= ICH_VMCR_EL2_VENG0 |
 	    ICH_VMCR_EL2_VENG1;
 
-	hypctx->vgic_v3_regs.ich_lr_num = virt_features.ich_lr_num;
-	for (i = 0; i < hypctx->vgic_v3_regs.ich_lr_num; i++)
-		hypctx->vgic_v3_regs.ich_lr_el2[i] = 0UL;
+	hypctx->vgic_v3.ich_lr_num = virt_features.ich_lr_num;
+	for (i = 0; i < hypctx->vgic_v3.ich_lr_num; i++)
+		hypctx_write_sys_reg(hypctx, HOST_ICH_LR_EL2(i), 0UL);
 	vgic_cpu->ich_lr_used = 0;
 	TAILQ_INIT(&vgic_cpu->irq_act_pend);
 
-	hypctx->vgic_v3_regs.ich_apr_num = virt_features.ich_apr_num;
+	hypctx->vgic_v3.ich_apr_num = virt_features.ich_apr_num;
 }
 
 static void
@@ -2118,7 +2119,7 @@ vgic_v3_flush_hwstate(device_t dev, struct hypctx *hypctx)
 	 */
 	mtx_lock_spin(&vgic_cpu->lr_mtx);
 
-	hypctx->vgic_v3_regs.ich_hcr_el2 &= ~ICH_HCR_EL2_UIE;
+	*hypctx_sys_reg(hypctx, HOST_ICH_HCR_EL2) &= ~ICH_HCR_EL2_UIE;
 
 	/* Exit early if there are no buffered interrupts */
 	if (TAILQ_EMPTY(&vgic_cpu->irq_act_pend))
@@ -2128,33 +2129,34 @@ vgic_v3_flush_hwstate(device_t dev, struct hypctx *hypctx)
 	    __func__, vgic_cpu->ich_lr_used));
 
 	i = 0;
-	hypctx->vgic_v3_regs.ich_elrsr_el2 =
-	    (1u << hypctx->vgic_v3_regs.ich_lr_num) - 1;
+	hypctx_write_sys_reg(hypctx, HOST_ICH_ELRSR_EL2,
+	    (1u << hypctx->vgic_v3.ich_lr_num) - 1);
 	TAILQ_FOREACH(irq, &vgic_cpu->irq_act_pend, act_pend_list) {
 		/* No free list register, stop searching for IRQs */
-		if (i == hypctx->vgic_v3_regs.ich_lr_num)
+		if (i == hypctx->vgic_v3.ich_lr_num)
 			break;
 
 		if (!irq->enabled)
 			continue;
 
-		hypctx->vgic_v3_regs.ich_lr_el2[i] = ICH_LR_EL2_GROUP1 |
-		    ((uint64_t)irq->priority << ICH_LR_EL2_PRIO_SHIFT) |
-		    irq->irq;
+		hypctx_write_sys_reg(hypctx, HOST_ICH_LR_EL2(i),
+		    ICH_LR_EL2_GROUP1 |
+			((uint64_t)irq->priority << ICH_LR_EL2_PRIO_SHIFT) |
+				irq->irq);
 
 		if (irq->active) {
-			hypctx->vgic_v3_regs.ich_lr_el2[i] |=
+			*hypctx_sys_reg(hypctx, HOST_ICH_LR_EL2(i)) |=
 			    ICH_LR_EL2_STATE_ACTIVE;
 		}
 
 #ifdef notyet
 		/* TODO: Check why this is needed */
 		if ((irq->config & _MASK) == LEVEL)
-			hypctx->vgic_v3_regs.ich_lr_el2[i] |= ICH_LR_EL2_EOI;
+			*hypctx_sys_reg(hypctx, HOST_ICH_LR_EL2(i)) |= ICH_LR_EL2_EOI;
 #endif
 
 		if (!irq->active && vgic_v3_irq_pending(irq)) {
-			hypctx->vgic_v3_regs.ich_lr_el2[i] |=
+			*hypctx_sys_reg(hypctx, HOST_ICH_LR_EL2(i)) |=
 			    ICH_LR_EL2_STATE_PENDING;
 
 			/*
@@ -2196,8 +2198,8 @@ vgic_v3_sync_hwstate(device_t dev, struct hypctx *hypctx)
 	 * access unlocked.
 	 */
 	for (i = 0; i < vgic_cpu->ich_lr_used; i++) {
-		lr = hypctx->vgic_v3_regs.ich_lr_el2[i];
-		hypctx->vgic_v3_regs.ich_lr_el2[i] = 0;
+		lr = hypctx_read_sys_reg(hypctx, HOST_ICH_LR_EL2(i));
+		hypctx_write_sys_reg(hypctx, HOST_ICH_LR_EL2(i), 0);
 
 		irq = vgic_v3_get_irq(hypctx->hyp, vcpu_vcpuid(hypctx->vcpu),
 		    ICH_LR_EL2_VINTID(lr));
@@ -2244,7 +2246,7 @@ vgic_v3_sync_hwstate(device_t dev, struct hypctx *hypctx)
 		vgic_v3_release_irq(irq);
 	}
 
-	hypctx->vgic_v3_regs.ich_hcr_el2 &= ~ICH_HCR_EL2_EOICOUNT_MASK;
+	*hypctx_sys_reg(hypctx, HOST_ICH_HCR_EL2) &= ~ICH_HCR_EL2_EOICOUNT_MASK;
 	vgic_cpu->ich_lr_used = 0;
 }
 

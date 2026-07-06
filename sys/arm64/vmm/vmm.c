@@ -862,13 +862,13 @@ vm_handle_smccc_call(struct vcpu *vcpu, struct vm_exit *vme, bool *retu)
 
 	hypctx = vcpu_get_cookie(vcpu);
 
-	if ((hypctx->tf.tf_esr & ESR_ELx_ISS_MASK) != 0)
+	if ((hypctx_read_sys_reg(hypctx, HOST_ESR_EL2) & ESR_ELx_ISS_MASK) != 0)
 		return (1);
 
 	vme->exitcode = VM_EXITCODE_SMCCC;
-	vme->u.smccc_call.func_id = hypctx->tf.tf_x[0];
+	vme->u.smccc_call.func_id = hypctx_read_sys_reg(hypctx, GPR_X(0));
 	for (i = 0; i < nitems(vme->u.smccc_call.args); i++)
-		vme->u.smccc_call.args[i] = hypctx->tf.tf_x[i + 1];
+		vme->u.smccc_call.args[i] = hypctx_read_sys_reg(hypctx, GPR_X(i + 1));
 
 	*retu = true;
 	return (0);

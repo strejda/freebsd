@@ -659,7 +659,7 @@ arm64_gen_inst_emul_data(struct hypctx *hypctx, uint32_t esr_iss,
 		~(TTBR_ASID_MASK | TTBR_CnP);
 	paging->tcr_el1 = hypctx_read_sys_reg(hypctx, TCR_EL1);
 	paging->tcr2_el1 = hypctx_read_sys_reg(hypctx, TCR2_EL1);
-	paging->flags = hypctx->tf.tf_spsr & (PSR_M_MASK | PSR_M_32);
+	paging->flags = hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2) & (PSR_M_MASK | PSR_M_32);
 	if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) & SCTLR_M) != 0)
 		paging->flags |= VM_GP_MMU_ENABLED;
 }
@@ -685,7 +685,7 @@ raise_data_insn_abort(struct hypctx *hypctx, uint64_t far, bool dabort, int fsc)
 {
 	uint64_t esr;
 
-	if ((hypctx->tf.tf_spsr & PSR_M_MASK) == PSR_M_EL0t)
+	if ((hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2) & PSR_M_MASK) == PSR_M_EL0t)
 		esr = EXCP_INSN_ABORT_L << ESR_ELx_EC_SHIFT;
 	else
 		esr = EXCP_INSN_ABORT << ESR_ELx_EC_SHIFT;
@@ -693,7 +693,7 @@ raise_data_insn_abort(struct hypctx *hypctx, uint64_t far, bool dabort, int fsc)
 	if (dabort)
 		esr |= EXCP_DATA_ABORT_L << ESR_ELx_EC_SHIFT;
 	/* Set the IL bit if set by hardware */
-	esr |= hypctx->tf.tf_esr & ESR_ELx_IL;
+	esr |= hypctx_read_sys_reg(hypctx, HOST_ESR_EL2) & ESR_ELx_IL;
 
 	vmmops_exception(hypctx, esr | fsc, far);
 }
@@ -705,8 +705,8 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 	uint64_t gpa;
 	uint32_t esr_ec, esr_iss;
 
-	esr_ec = ESR_ELx_EXCEPTION(hypctx->tf.tf_esr);
-	esr_iss = hypctx->tf.tf_esr & ESR_ELx_ISS_MASK;
+	esr_ec = ESR_ELx_EXCEPTION(hypctx_read_sys_reg(hypctx, HOST_ESR_EL2));
+	esr_iss = hypctx_read_sys_reg(hypctx, HOST_ESR_EL2) & ESR_ELx_ISS_MASK;
 
 	switch (esr_ec) {
 	case EXCP_UNKNOWN:
@@ -715,7 +715,7 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 		vme_ret->exitcode = VM_EXITCODE_HYP;
 		break;
 	case EXCP_TRAP_WFI_WFE:
-		if ((hypctx->tf.tf_esr & 0x3) == 0) { /* WFI */
+		if ((hypctx_read_sys_reg(hypctx, HOST_ESR_EL2) & 0x3) == 0) { /* WFI */
 			vmm_stat_incr(hypctx->vcpu, VMEXIT_WFI, 1);
 			vme_ret->exitcode = VM_EXITCODE_WFI;
 		} else {
@@ -744,7 +744,7 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 	case EXCP_DATA_ABORT_L:
 		vmm_stat_incr(hypctx->vcpu, esr_ec == EXCP_DATA_ABORT_L ?
 		    VMEXIT_DATA_ABORT : VMEXIT_INSN_ABORT, 1);
-		switch (hypctx->tf.tf_esr & ISS_DATA_DFSC_MASK) {
+		switch (hypctx_read_sys_reg(hypctx, HOST_ESR_EL2) & ISS_DATA_DFSC_MASK) {
 		case ISS_DATA_DFSC_TF_L0:
 		case ISS_DATA_DFSC_TF_L1:
 		case ISS_DATA_DFSC_TF_L2:
@@ -769,7 +769,7 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 			if (vm_mem_allocated(hypctx->vcpu, gpa)) {
 				vme_ret->exitcode = VM_EXITCODE_PAGING;
 				vme_ret->inst_length = 0;
-				vme_ret->u.paging.esr = hypctx->tf.tf_esr;
+				vme_ret->u.paging.esr = hypctx_read_sys_reg(hypctx, HOST_ESR_EL2);
 				vme_ret->u.paging.gpa = gpa;
 			} else if (esr_ec == EXCP_INSN_ABORT_L) {
 				/*
@@ -1094,7 +1094,7 @@ fault:
 int
 vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 {
-	uint64_t excp_type, vbar_el1;
+	uint64_t excp_type, vbar_el1, new_spsr;
 	int handled;
 	register_t daif;
 	struct hyp *hyp;
@@ -1108,36 +1108,43 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 	vcpu = hypctx->vcpu;
 	vme = vm_exitinfo(vcpu);
 
-	hypctx->tf.tf_elr = (uint64_t)pc;
+	hypctx_write_sys_reg(hypctx, HOST_ELR_EL2, (uint64_t)pc);
 
 	for (;;) {
 		if (hypctx->has_exception) {
 			hypctx->has_exception = false;
-			hypctx_write_sys_reg(hypctx, ELR_EL1, hypctx->tf.tf_elr);
+			hypctx_write_sys_reg(hypctx, ELR_EL1,
+				hypctx_read_sys_reg(hypctx, HOST_ELR_EL2));
 
-			mode = hypctx->tf.tf_spsr & (PSR_M_MASK | PSR_M_32);
+			mode = hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2) &
+				(PSR_M_MASK | PSR_M_32);
 
 			vbar_el1 = hypctx_read_sys_reg(hypctx, VBAR_EL1);
 			if (mode == PSR_M_EL1t) {
-				hypctx->tf.tf_elr = vbar_el1 + 0x0;
+				hypctx_write_sys_reg(hypctx, HOST_ELR_EL2,
+						     vbar_el1 + 0x0);
 			} else if (mode == PSR_M_EL1h) {
-				hypctx->tf.tf_elr = vbar_el1 + 0x200;
+				hypctx_write_sys_reg(hypctx, HOST_ELR_EL2,
+						     vbar_el1 + 0x200);
 			} else if ((mode & PSR_M_32) == PSR_M_64) {
 				/* 64-bit EL0 */
-				hypctx->tf.tf_elr = vbar_el1 + 0x400;
+				hypctx_write_sys_reg(hypctx, HOST_ELR_EL2,
+						     vbar_el1 + 0x400);
 			} else {
 				/* 32-bit EL0 */
-				hypctx->tf.tf_elr = vbar_el1 + 0x600;
+				hypctx_write_sys_reg(hypctx, HOST_ELR_EL2,
+						     vbar_el1 + 0x600);
 			}
 
 			/* Set the new spsr */
-			hypctx_write_sys_reg(hypctx, SPSR_EL1, hypctx->tf.tf_spsr);
+			new_spsr = hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2);
+			hypctx_write_sys_reg(hypctx, SPSR_EL1, new_spsr);
 
 			/* Set the new cpsr */
-			hypctx->tf.tf_spsr = hypctx_read_sys_reg(hypctx,
-						 SPSR_EL1) & PSR_FLAGS;
-
-			hypctx->tf.tf_spsr |= PSR_DAIF | PSR_M_EL1h;
+			hypctx_write_sys_reg(hypctx, HOST_SPSR_EL2,
+					     new_spsr & PSR_FLAGS);
+			*hypctx_sys_reg(hypctx, HOST_SPSR_EL2) |= PSR_DAIF |
+				PSR_M_EL1h;
 
 			/*
 			 * Update fields that may change on exeption entry
@@ -1145,12 +1152,15 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 			 */
 			if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) &
 			     SCTLR_SPAN) == 0)
-				hypctx->tf.tf_spsr |= PSR_PAN;
+				*hypctx_sys_reg(hypctx,
+						HOST_SPSR_EL2) |= PSR_PAN;
 			if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) &
 			     SCTLR_DSSBS) == 0)
-				hypctx->tf.tf_spsr &= ~PSR_SSBS;
+				*hypctx_sys_reg(hypctx,
+						HOST_SPSR_EL2) &= ~PSR_SSBS;
 			else
-				hypctx->tf.tf_spsr |= PSR_SSBS;
+				*hypctx_sys_reg(hypctx,
+						HOST_SPSR_EL2) |= PSR_SSBS;
 		}
 
 		daif = intr_disable();
@@ -1170,7 +1180,8 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 
 		/* Activate the stage2 pmap so the vmid is valid */
 		pmap_activate_vm(pmap);
-		hypctx_write_sys_reg(hypctx, HOST_VTTBR_EL2, pmap_to_ttbr0(pmap));
+		hypctx_write_sys_reg(hypctx, HOST_VTTBR_EL2,
+				     pmap_to_ttbr0(pmap));
 
 		/*
 		 * TODO: What happens if a timer interrupt is asserted exactly
@@ -1195,10 +1206,10 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 		if (excp_type == EXCP_TYPE_MAINT_IRQ)
 			continue;
 
-		vme->pc = hypctx->tf.tf_elr;
+		vme->pc = hypctx_read_sys_reg(hypctx, HOST_ELR_EL2);
 		vme->inst_length = INSN_SIZE;
 		vme->u.hyp.exception_nr = excp_type;
-		vme->u.hyp.esr_el2 = hypctx->tf.tf_esr;
+		vme->u.hyp.esr_el2 = hypctx_read_sys_reg(hypctx, HOST_ESR_EL2);
 		vme->u.hyp.far_el2 = hypctx_read_sys_reg(hypctx, HOST_FAR_EL2);
 		vme->u.hyp.hpfar_el2 = hypctx_read_sys_reg(hypctx, HOST_HPFAR_EL2);
 
@@ -1209,7 +1220,7 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 			break;
 		else
 			/* Resume guest execution from the next instruction. */
-			hypctx->tf.tf_elr += vme->inst_length;
+			*hypctx_sys_reg(hypctx, HOST_ELR_EL2) += vme->inst_length;
 	}
 
 	return (0);
@@ -1270,15 +1281,15 @@ hypctx_regptr(struct hypctx *hypctx, int reg)
 {
 	switch (reg) {
 	case VM_REG_GUEST_X0 ... VM_REG_GUEST_X29:
-		return (&hypctx->tf.tf_x[reg]);
+		return hypctx_sys_reg(hypctx, GPR_X(reg));
 	case VM_REG_GUEST_LR:
-		return (&hypctx->tf.tf_lr);
+		return hypctx_sys_reg(hypctx, GPR_LR);
 	case VM_REG_GUEST_SP:
-		return (&hypctx->tf.tf_sp);
+		return hypctx_sys_reg(hypctx, HOST_SP_EL1);
 	case VM_REG_GUEST_CPSR:
-		return (&hypctx->tf.tf_spsr);
+		return hypctx_sys_reg(hypctx, HOST_SPSR_EL2);
 	case VM_REG_GUEST_PC:
-		return (&hypctx->tf.tf_elr);
+		return hypctx_sys_reg(hypctx, HOST_ELR_EL2);
 	case VM_REG_GUEST_SCTLR_EL1:
 		return hypctx_sys_reg(hypctx, SCTLR_EL1);
 	case VM_REG_GUEST_TTBR0_EL1:
@@ -1385,6 +1396,7 @@ vmmops_setcap(void *vcpui, int num, int val)
 {
 	struct hypctx *hypctx = vcpui;
 	int ret;
+	uint64_t host_spsr_el2;
 
 	ret = 0;
 
@@ -1402,38 +1414,42 @@ vmmops_setcap(void *vcpui, int num, int val)
 			break;
 
 		if (val != 0) {
-			hypctx->debug_spsr |= (hypctx->tf.tf_spsr & PSR_SS);
-			hypctx->debug_mdscr |=
-				(hypctx_read_sys_reg(hypctx, MDSCR_EL1) & MDSCR_SS);
+			hypctx->debug_spsr |= (hypctx_read_sys_reg(hypctx,
+						   HOST_SPSR_EL2) & PSR_SS);
+			hypctx->debug_mdscr |= (hypctx_read_sys_reg(hypctx,
+						   MDSCR_EL1) & MDSCR_SS);
 
-			hypctx->tf.tf_spsr |= PSR_SS;
+			*hypctx_sys_reg(hypctx, HOST_SPSR_EL2) |= PSR_SS;
 			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= MDSCR_SS;
 			*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) |= MDCR_EL2_TDE;
 		} else {
-			hypctx->tf.tf_spsr &= ~PSR_SS;
-			hypctx->tf.tf_spsr |= hypctx->debug_spsr;
+			*hypctx_sys_reg(hypctx, HOST_SPSR_EL2) &= ~PSR_SS;
+			*hypctx_sys_reg(hypctx,
+					HOST_SPSR_EL2) |= hypctx->debug_spsr;
 			hypctx->debug_spsr &= ~PSR_SS;
 			*hypctx_sys_reg(hypctx, MDSCR_EL1) &= ~MDSCR_SS;
-			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= hypctx->debug_mdscr;
+			*hypctx_sys_reg(hypctx,
+					MDSCR_EL1) |= hypctx->debug_mdscr;
 			hypctx->debug_mdscr &= ~MDSCR_SS;
 			if ((hypctx->setcaps & (1ul << VM_CAP_BRK_EXIT)) == 0)
-				*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) &= ~MDCR_EL2_TDE;
+				*hypctx_sys_reg(hypctx,
+						HOST_MDCR_EL2) &= ~MDCR_EL2_TDE;
 		}
 		break;
 	case VM_CAP_MASK_HWINTR:
 		if ((val != 0) == ((hypctx->setcaps & (1ul << num)) != 0))
 			break;
 
+		host_spsr_el2 = hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2);
 		if (val != 0) {
-			hypctx->debug_spsr |= (hypctx->tf.tf_spsr &
-			    (PSR_I | PSR_F));
-			hypctx->tf.tf_spsr |= PSR_I | PSR_F;
+			hypctx->debug_spsr |= (host_spsr_el2 & (PSR_I | PSR_F));
+			host_spsr_el2 |= PSR_I | PSR_F;
 		} else {
-			hypctx->tf.tf_spsr &= ~(PSR_I | PSR_F);
-			hypctx->tf.tf_spsr |= (hypctx->debug_spsr &
-			    (PSR_I | PSR_F));
+			host_spsr_el2 &= ~(PSR_I | PSR_F);
+			host_spsr_el2 |= (hypctx->debug_spsr & (PSR_I | PSR_F));
 			hypctx->debug_spsr &= ~(PSR_I | PSR_F);
 		}
+		hypctx_write_sys_reg(hypctx, HOST_SPSR_EL2, host_spsr_el2);
 		break;
 	default:
 		ret = ENOENT;

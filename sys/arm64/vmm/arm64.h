@@ -56,7 +56,14 @@ struct vgic_v3_cpu;
 #define DBGWCR_EL1(n) (DBGWCR0_EL1 + MIN(n, 15))
 #define DBGWVR_EL1(n) (DBGWVR0_EL1 + MIN(n, 15))
 
+#define HOST_ICH_LR_EL2(n) (HOST_ICH_LR0_EL2 + MIN(n, VGIC_ICH_LR_NUM_MAX-1))
+#define HOST_ICH_AP0R_EL2(n) (HOST_ICH_AP0R0_EL2 + MIN(n, VGIC_ICH_APR_NUM_MAX-1))
+#define HOST_ICH_AP1R_EL2(n) (HOST_ICH_AP1R0_EL2 + MIN(n, VGIC_ICH_APR_NUM_MAX-1))
+#define GPR_X(n) (GPR_X0 + MIN(n, 30))
+
 enum hypctx_sysreg {
+	HOST_SPSR_EL2,
+	HOST_ESR_EL2,
 	CSSELR_EL1,  /* Cache Size Selection Register */
 	MDCCINT_EL1, /* Monitor DCC Interrupt Enable Register */
 	PAR_EL1,     /* Physical Address Register */
@@ -119,6 +126,28 @@ enum hypctx_sysreg {
 	/* Exit info registers */
 	HOST_FAR_EL2,	/* Fault Address Register */
 	HOST_HPFAR_EL2,	/* Hypervisor IPA Fault Address Register */
+
+	HOST_ICH_EISR_EL2,	/* End of Interrupt Status Register */
+	HOST_ICH_ELRSR_EL2,	/* Empty List Register Status Register */
+	HOST_ICH_HCR_EL2,	/* Hyp Control Register */
+	HOST_ICH_MISR_EL2,	/* Maintenance Interrupt State Register */
+	HOST_ICH_VMCR_EL2,	/* Virtual Machine Control Register */
+
+	/*
+	 * The List Registers are part of the VM context and are modified on a
+	 * world switch. They need to be allocated statically so they are
+	 * mapped in the EL2 translation tables when struct hypctx is mapped.
+	 */
+	HOST_ICH_LR0_EL2,
+	HOST_ICH_LR_MAX_EL2 = HOST_ICH_LR0_EL2 + (VGIC_ICH_LR_NUM_MAX - 1),
+	/* Active Priorities Registers for Group 0 and 1 interrupts */
+	HOST_ICH_AP0R0_EL2,
+	HOST_ICH_AP0R_MAX_EL2 = HOST_ICH_AP0R0_EL2 + (VGIC_ICH_APR_NUM_MAX - 1),
+	HOST_ICH_AP1R0_EL2,
+	HOST_ICH_AP1R_MAX_EL2 = HOST_ICH_AP1R0_EL2 + (VGIC_ICH_APR_NUM_MAX - 1),
+
+	HOST_CNTHCTL_EL2,
+	HOST_CNTVOFF_EL2,
 
 	NR_NON_VNCR_REGS,
 
@@ -217,10 +246,17 @@ enum hypctx_sysreg {
 	/* Virtual-address-sized registers */
 	VA_REGS_START,
 
+	/* Do not reorder these without matching asm changes */
+	GPR_LR,
+	GPR_X0,
+	GPR_X30 = GPR_X0 + 30,
+	/* These can be reordered freely */
 	SP_EL0,	     /* Stack pointer */
 	TPIDR_EL0,   /* EL0 Software ID Register */
 	TPIDRRO_EL0, /* Read-only Thread ID Register */
 	TPIDR_EL1,   /* EL1 Software ID Register */
+	HOST_SP_EL1,
+	HOST_ELR_EL2,
 
 	VA_REGS_END,
 };
@@ -229,7 +265,6 @@ enum hypctx_sysreg {
  * Per-vCPU hypervisor state.
  */
 struct hypctx {
-	struct trapframe tf;
 	/* Virtual-address-sized registers */
 	uint64_t va_regs[VA_REGS_END - VA_REGS_START - 1];
 	/* Non-VNCR register state */
@@ -238,7 +273,6 @@ struct hypctx {
 	struct hyp	*hyp;
 	struct vcpu	*vcpu;
 
-	struct vtimer	vtimer;
 	struct vtimer_cpu 	vtimer_cpu;
 
 	uint64_t		setcaps;	/* Currently enabled capabilities. */
@@ -247,7 +281,10 @@ struct hypctx {
 	uint64_t		debug_spsr;		/* Saved guest SPSR */
 	uint64_t		debug_mdscr;		/* Saved guest MDSCR */
 
-	struct vgic_v3_regs	vgic_v3_regs;
+	struct {
+		uint16_t	ich_lr_num;
+		uint16_t	ich_apr_num;
+	} vgic_v3;
 	struct vgic_v3_cpu	*vgic_cpu;
 	bool			has_exception;
 	bool			dbg_oslock;
@@ -277,6 +314,8 @@ struct hypctx {
 	(&hypctx->va_regs[reg - VA_REGS_START - 1])
 #endif
 
+/* Calling this with markers like reg=VNCR_START or reg=NR_NON_VNCR_REGS
+   is a bad idea */
 static inline uint64_t *
 hypctx_sys_reg(struct hypctx *hypctx, int reg /* enum hypctx_sysreg  */)
 {
@@ -285,7 +324,6 @@ hypctx_sys_reg(struct hypctx *hypctx, int reg /* enum hypctx_sysreg  */)
 		return (__hypctx_va_sysreg(hypctx, reg));
 	if (reg > VNCR_START)
 		return (__hypctx_vncr_sysreg(hypctx, reg));
-	/* Calling this with reg=VNCR_START or reg=NR_NON_VNCR_REGS is a bad idea */
 	return (&hypctx->sys_regs[reg]);
 }
 

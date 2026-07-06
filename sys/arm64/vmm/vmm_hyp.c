@@ -174,22 +174,27 @@ vmm_hyp_reg_store_pmu_debug(struct hypctx *hypctx, bool guest)
 static void
 vmm_hyp_reg_store_vgic(struct hypctx *hypctx, bool guest)
 {
-	hypctx->vgic_v3_regs.ich_hcr_el2 = READ_SPECIALREG(ich_hcr_el2);
-	hypctx->vgic_v3_regs.ich_vmcr_el2 = READ_SPECIALREG(ich_vmcr_el2);
+	hypctx_write_sys_reg(hypctx, HOST_ICH_HCR_EL2,
+	    READ_SPECIALREG(ich_hcr_el2));
+	hypctx_write_sys_reg(hypctx, HOST_ICH_VMCR_EL2,
+	    READ_SPECIALREG(ich_vmcr_el2));
 
 	 if (!guest)
 		 return;
 
 	/* Store the GICv3 registers */
-	hypctx->vgic_v3_regs.ich_eisr_el2 = READ_SPECIALREG(ich_eisr_el2);
-	hypctx->vgic_v3_regs.ich_elrsr_el2 = READ_SPECIALREG(ich_elrsr_el2);
-	hypctx->vgic_v3_regs.ich_misr_el2 = READ_SPECIALREG(ich_misr_el2);
+	 hypctx_write_sys_reg(hypctx, HOST_ICH_EISR_EL2,
+	    READ_SPECIALREG(ich_eisr_el2));
+	 hypctx_write_sys_reg(hypctx, HOST_ICH_ELRSR_EL2,
+	    READ_SPECIALREG(ich_elrsr_el2));
+	 hypctx_write_sys_reg(hypctx, HOST_ICH_MISR_EL2,
+	    READ_SPECIALREG(ich_misr_el2));
 
-	switch (hypctx->vgic_v3_regs.ich_lr_num - 1) {
-#define	STORE_LR(x)				\
-case x:						\
-	hypctx->vgic_v3_regs.ich_lr_el2[x] =	\
-	    READ_SPECIALREG(ich_lr ## x ##_el2)
+	switch (hypctx->vgic_v3.ich_lr_num - 1) {
+#define	STORE_LR(x)						\
+case x:								\
+	hypctx_write_sys_reg(hypctx, HOST_ICH_LR_EL2(x),	\
+	    READ_SPECIALREG(ich_lr ## x ##_el2))
 	STORE_LR(15);
 	STORE_LR(14);
 	STORE_LR(13);
@@ -210,13 +215,13 @@ case x:						\
 #undef STORE_LR
 	}
 
-	switch (hypctx->vgic_v3_regs.ich_apr_num - 1) {
-#define	STORE_APR(x)					\
-case x:							\
-	hypctx->vgic_v3_regs.ich_ap0r_el2[x] =		\
-	    READ_SPECIALREG(ich_ap0r ## x ##_el2);	\
-	hypctx->vgic_v3_regs.ich_ap1r_el2[x] =		\
-	    READ_SPECIALREG(ich_ap1r ## x ##_el2)
+	switch (hypctx->vgic_v3.ich_apr_num - 1) {
+#define	STORE_APR(x)						\
+case x:								\
+	hypctx_write_sys_reg(hypctx, HOST_ICH_AP0R_EL2(x),	\
+	    READ_SPECIALREG(ich_ap0r ## x ##_el2));		\
+	hypctx_write_sys_reg(hypctx, HOST_ICH_AP1R_EL2(x),	\
+	    READ_SPECIALREG(ich_ap1r ## x ##_el2))
 	STORE_APR(3);
 	STORE_APR(2);
 	STORE_APR(1);
@@ -242,13 +247,14 @@ vmm_hyp_reg_store_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 	} else {
 		hypctx->vtimer_cpu.cntkctl_el1 =
 		    READ_SPECIALREG(cntkctl_el1);
-		hypctx->vtimer.cnthctl_el2 =
-		    READ_SPECIALREG(cnthctl_el2);
-		hypctx->vtimer.cntvoff_el2 =
-		    READ_SPECIALREG(cntvoff_el2);
+		hypctx_write_sys_reg(hypctx, HOST_CNTHCTL_EL2,
+		    READ_SPECIALREG(cnthctl_el2));
+		hypctx_write_sys_reg(hypctx, HOST_CNTVOFF_EL2,
+		    READ_SPECIALREG(cntvoff_el2));
 	}
 
-	ecv_poff = (hypctx->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
+	ecv_poff = (hypctx_read_sys_reg(hypctx, HOST_CNTHCTL_EL2) &
+	    CNTHCTL_ECV_EN) != 0;
 
 	if (guest_or_nonvhe(guest) && ecv_poff) {
 		/*
@@ -267,16 +273,17 @@ static void
 vmm_hyp_reg_store_special(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 {
 	/* Store the special to from the trapframe */
-	hypctx->tf.tf_sp = READ_SPECIALREG(sp_el1);
-	hypctx->tf.tf_elr = READ_SPECIALREG(elr_el2);
-	hypctx->tf.tf_spsr = READ_SPECIALREG(spsr_el2);
+	hypctx_write_sys_reg(hypctx, HOST_SP_EL1, READ_SPECIALREG(sp_el1));
+	hypctx_write_sys_reg(hypctx, HOST_ELR_EL2, READ_SPECIALREG(elr_el2));
+	hypctx_write_sys_reg(hypctx, HOST_SPSR_EL2, READ_SPECIALREG(spsr_el2));
 
 	if (guest) {
-		hypctx->tf.tf_esr = READ_SPECIALREG(esr_el2);
+		hypctx_write_sys_reg(hypctx, HOST_ESR_EL2,
+		    READ_SPECIALREG(esr_el2));
 		hypctx_write_sys_reg(hypctx, HOST_FAR_EL2,
 		    READ_SPECIALREG(far_el2));
-		hypctx_write_sys_reg(hypctx,
-		    PAR_EL1, READ_SPECIALREG(par_el1));
+		hypctx_write_sys_reg(hypctx, PAR_EL1,
+		    READ_SPECIALREG(par_el1));
 	}
 
 	/* Store the guest special registers */
@@ -439,9 +446,9 @@ vmm_hyp_reg_restore_special(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 	    hypctx_read_sys_reg(hypctx, HOST_VMPIDR_EL2));
 
 	/* Load the special regs from the trapframe */
-	WRITE_SPECIALREG(sp_el1, hypctx->tf.tf_sp);
-	WRITE_SPECIALREG(elr_el2, hypctx->tf.tf_elr);
-	WRITE_SPECIALREG(spsr_el2, hypctx->tf.tf_spsr);
+	WRITE_SPECIALREG(sp_el1, hypctx_read_sys_reg(hypctx, HOST_SP_EL1));
+	WRITE_SPECIALREG(elr_el2, hypctx_read_sys_reg(hypctx, HOST_ELR_EL2));
+	WRITE_SPECIALREG(spsr_el2, hypctx_read_sys_reg(hypctx, HOST_SPSR_EL2));
 }
 
 static void
@@ -581,10 +588,13 @@ static void
 vmm_hyp_reg_restore_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 {
 	bool ecv_poff;
-	ecv_poff = (hypctx->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
+	ecv_poff = (hypctx_read_sys_reg(hypctx, HOST_CNTHCTL_EL2) &
+	    CNTHCTL_ECV_EN) != 0;
 
-	WRITE_SPECIALREG(cnthctl_el2, hypctx->vtimer.cnthctl_el2);
-	WRITE_SPECIALREG(cntvoff_el2, hypctx->vtimer.cntvoff_el2);
+	WRITE_SPECIALREG(cnthctl_el2,
+	    hypctx_read_sys_reg(hypctx, HOST_CNTHCTL_EL2));
+	WRITE_SPECIALREG(cntvoff_el2,
+	    hypctx_read_sys_reg(hypctx, HOST_CNTVOFF_EL2));
 
 	if (guest) {
 		WRITE_SPECIALREG(EL1_REG(CNTKCTL),
@@ -600,7 +610,7 @@ vmm_hyp_reg_restore_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 			 * to keep in sync.
 			 */
 			WRITE_SPECIALREG(CNTPOFF_EL2_REG,
-			    hypctx->vtimer.cntvoff_el2);
+			    hypctx_read_sys_reg(hypctx, HOST_CNTVOFF_EL2));
 			isb();
 		}
 	} else {
@@ -623,18 +633,19 @@ static void
 vmm_hyp_reg_restore_vgic(struct hypctx *hypctx, bool guest)
 {
 	/* Load the GICv3 registers */
-	WRITE_SPECIALREG(ich_hcr_el2, hypctx->vgic_v3_regs.ich_hcr_el2);
+	WRITE_SPECIALREG(ich_hcr_el2,
+	    hypctx_read_sys_reg(hypctx, HOST_ICH_HCR_EL2));
 	WRITE_SPECIALREG(ich_vmcr_el2,
-	    hypctx->vgic_v3_regs.ich_vmcr_el2);
+	    hypctx_read_sys_reg(hypctx, HOST_ICH_VMCR_EL2));
 
 	if (!guest)
 		return;
 
-	switch (hypctx->vgic_v3_regs.ich_lr_num - 1) {
-#define	LOAD_LR(x)				\
-case x:						\
-	WRITE_SPECIALREG(ich_lr ## x ##_el2,	\
-	    hypctx->vgic_v3_regs.ich_lr_el2[x])
+	switch (hypctx->vgic_v3.ich_lr_num - 1) {
+#define	LOAD_LR(x)							\
+case x:									\
+	WRITE_SPECIALREG(ich_lr ## x ##_el2,				\
+	    hypctx_read_sys_reg(hypctx, HOST_ICH_LR_EL2(x)))
 	LOAD_LR(15);
 	LOAD_LR(14);
 	LOAD_LR(13);
@@ -655,18 +666,18 @@ case x:						\
 #undef LOAD_LR
 	}
 
-	switch (hypctx->vgic_v3_regs.ich_apr_num - 1) {
-#define	LOAD_APR(x)						\
-	case x:							\
-		WRITE_SPECIALREG(ich_ap0r ## x ##_el2,		\
-		    hypctx->vgic_v3_regs.ich_ap0r_el2[x]);	\
-		WRITE_SPECIALREG(ich_ap1r ## x ##_el2,		\
-		    hypctx->vgic_v3_regs.ich_ap1r_el2[x])
-		LOAD_APR(3);
-		LOAD_APR(2);
-		LOAD_APR(1);
-		default:
-		LOAD_APR(0);
+	switch (hypctx->vgic_v3.ich_apr_num - 1) {
+#define	LOAD_APR(x)							\
+case x:									\
+	WRITE_SPECIALREG(ich_ap0r ## x ##_el2,				\
+	    hypctx_read_sys_reg(hypctx, HOST_ICH_AP0R_EL2(x)));	\
+	WRITE_SPECIALREG(ich_ap1r ## x ##_el2,				\
+	    hypctx_read_sys_reg(hypctx, HOST_ICH_AP1R_EL2(x)))
+	LOAD_APR(3);
+	LOAD_APR(2);
+	LOAD_APR(1);
+	default:
+	LOAD_APR(0);
 #undef LOAD_APR
 	}
 }
@@ -693,11 +704,12 @@ static void
 vmm_hyp_handle_guest_exit(struct hypctx *hypctx, uint64_t *ret)
 {
 	bool hpfar_valid;
-	uint64_t s1e1r, hpfar_el2;
+	uint64_t s1e1r, hpfar_el2, host_esr_el2, host_far_el2;
 
 	hpfar_valid = true;
+	host_esr_el2 = hypctx_read_sys_reg(hypctx, HOST_ESR_EL2);
 	if (*ret == EXCP_TYPE_EL1_SYNC) {
-		switch (ESR_ELx_EXCEPTION(hypctx->tf.tf_esr)) {
+		switch (ESR_ELx_EXCEPTION(host_esr_el2)) {
 		case EXCP_INSN_ABORT_L:
 		case EXCP_DATA_ABORT_L:
 			/*
@@ -713,9 +725,9 @@ vmm_hyp_handle_guest_exit(struct hypctx *hypctx, uint64_t *ret)
 			 *
 			 * TODO: Add a case for Arm erratum 834220.
 			 */
-			if ((hypctx->tf.tf_esr & ISS_DATA_S1PTW) != 0)
+			if ((host_esr_el2 & ISS_DATA_S1PTW) != 0)
 				break;
-			switch (hypctx->tf.tf_esr & ISS_DATA_DFSC_MASK) {
+			switch (host_esr_el2 & ISS_DATA_DFSC_MASK) {
 			case ISS_DATA_DFSC_PF_L1:
 			case ISS_DATA_DFSC_PF_L2:
 			case ISS_DATA_DFSC_PF_L3:
@@ -726,14 +738,15 @@ vmm_hyp_handle_guest_exit(struct hypctx *hypctx, uint64_t *ret)
 		}
 	}
 	if (hpfar_valid) {
-		hypctx_write_sys_reg(hypctx, HOST_HPFAR_EL2, READ_SPECIALREG(hpfar_el2));
+		hypctx_write_sys_reg(hypctx, HOST_HPFAR_EL2,
+				     READ_SPECIALREG(hpfar_el2));
 	} else {
 		/*
 		 * TODO: There is a risk the at instruction could cause an
 		 * exception here. We should handle it & return a failure.
 		 */
-		s1e1r =
-		    arm64_address_translate_s1e1r(hypctx_read_sys_reg(hypctx, HOST_FAR_EL2));
+		host_far_el2 = hypctx_read_sys_reg(hypctx, HOST_FAR_EL2);
+		s1e1r = arm64_address_translate_s1e1r(host_far_el2);
 		if (PAR_SUCCESS(s1e1r)) {
 			hpfar_el2 = (s1e1r & PAR_PA_MASK) >> PAR_PA_SHIFT;
 			hpfar_el2 <<= HPFAR_EL2_FIPA_SHIFT;
