@@ -241,13 +241,13 @@ vmm_hyp_reg_store_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 	} else {
 		hypctx->vtimer_cpu.cntkctl_el1 =
 		    READ_SPECIALREG(cntkctl_el1);
-		hypctx->host_timer_regs.cnthctl_el2 =
+		hypctx->vtimer.cnthctl_el2 =
 		    READ_SPECIALREG(cnthctl_el2);
-		hypctx->host_timer_regs.cntvoff_el2 =
+		hypctx->vtimer.cntvoff_el2 =
 		    READ_SPECIALREG(cntvoff_el2);
 	}
 
-	ecv_poff = (hyp->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
+	ecv_poff = (hypctx->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
 
 	if (guest_or_nonvhe(guest) && ecv_poff) {
 		/*
@@ -565,11 +565,12 @@ static void
 vmm_hyp_reg_restore_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 {
 	bool ecv_poff;
-	ecv_poff = (hyp->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
+	ecv_poff = (hypctx->vtimer.cnthctl_el2 & CNTHCTL_ECV_EN) != 0;
+
+	WRITE_SPECIALREG(cnthctl_el2, hypctx->vtimer.cnthctl_el2);
+	WRITE_SPECIALREG(cntvoff_el2, hypctx->vtimer.cntvoff_el2);
 
 	if (guest) {
-		WRITE_SPECIALREG(cnthctl_el2, hyp->vtimer.cnthctl_el2);
-		WRITE_SPECIALREG(cntvoff_el2, hyp->vtimer.cntvoff_el2);
 		WRITE_SPECIALREG(EL1_REG(CNTKCTL),
 		    hypctx->vtimer_cpu.cntkctl_el1);
 		WRITE_SPECIALREG(EL0_REG(CNTV_CVAL),
@@ -583,14 +584,10 @@ vmm_hyp_reg_restore_timer(struct hypctx *hypctx, struct hyp *hyp, bool guest)
 			 * to keep in sync.
 			 */
 			WRITE_SPECIALREG(CNTPOFF_EL2_REG,
-			    hyp->vtimer.cntvoff_el2);
+			    hypctx->vtimer.cntvoff_el2);
 			isb();
 		}
 	} else {
-		WRITE_SPECIALREG(cnthctl_el2,
-		    hypctx->host_timer_regs.cnthctl_el2);
-		WRITE_SPECIALREG(cntvoff_el2,
-		    hypctx->host_timer_regs.cntvoff_el2);
 		WRITE_SPECIALREG(cntkctl_el1, hypctx->vtimer_cpu.cntkctl_el1);
 	}
 	if (guest_or_nonvhe(guest) && ecv_poff) {
@@ -736,7 +733,7 @@ static uint64_t
 __vmm_hyp_call_guest(struct hypctx *hypctx, struct hypctx *host_hypctx)
 {
 	uint64_t ret;
-	WRITE_SPECIALREG(vttbr_el2, hypctx->hyp->vttbr_el2);
+	WRITE_SPECIALREG(vttbr_el2, hypctx->vttbr_el2);
 	WRITE_SPECIALREG(mdcr_el2, hypctx->mdcr_el2);
 	/* Call into the guest */
 	ret = VMM_HYP_FUNC(do_call_guest)(hypctx);

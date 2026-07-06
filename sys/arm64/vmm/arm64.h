@@ -229,6 +229,8 @@ struct hypctx {
 	uint64_t	hfgrtr2_el2;
 	uint64_t	hfgwtr2_el2;
 
+	uint64_t	vttbr_el2;
+
 	/* Storage for *host* timer registers */
 	struct {
 		uint64_t cnthctl_el2;
@@ -242,6 +244,7 @@ struct hypctx {
 		uint64_t	hpfar_el2;	/* Hypervisor IPA Fault Address Register */
 	} exit_info;
 
+	struct vtimer	vtimer;
 	struct vtimer_cpu 	vtimer_cpu;
 
 	uint64_t		setcaps;	/* Currently enabled capabilities. */
@@ -307,9 +310,8 @@ hypctx_read_sys_reg(struct hypctx *hypctx, enum hypctx_sysreg reg)
 
 struct hyp {
 	struct vm	*vm;
-	struct vtimer	vtimer;
 	uint64_t	vmid_generation;
-	uint64_t	vttbr_el2;
+	uint64_t	cntvoff_el2;    /* VM-wide virtual timer offset */
 	uint64_t	el2_addr;	/* The address of this in el2 space */
 	uint64_t	feats;		/* Which features are enabled */
 #define	HYP_FEAT_HCX		(0x1ul << 0)

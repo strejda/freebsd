@@ -542,7 +542,7 @@ vmmops_init(struct vm *vm, pmap_t pmap)
 	if (ID_AA64MMFR1_HCX_VAL(idreg) >= ID_AA64MMFR1_HCX_IMPL)
 		hyp->feats |= HYP_FEAT_HCX;
 
-	vtimer_vminit(hyp);
+	hyp->cntvoff_el2 = READ_SPECIALREG(cntpct_el0);
 	vgic_vminit(hyp);
 
 	if (!in_vhe())
@@ -1170,7 +1170,7 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 
 		/* Activate the stage2 pmap so the vmid is valid */
 		pmap_activate_vm(pmap);
-		hyp->vttbr_el2 = pmap_to_ttbr0(pmap);
+		hypctx->vttbr_el2 = pmap_to_ttbr0(pmap);
 
 		/*
 		 * TODO: What happens if a timer interrupt is asserted exactly
