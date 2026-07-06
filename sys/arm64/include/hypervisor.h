@@ -2185,6 +2185,8 @@
 /* Assumed to be 0 by locore.S */
 #define	VTTBR_HOST		0x0000000000000000
 
+/* Size of the memory page pointed to by VNCR_EL2 */
+#define VNCR_PAGE_SIZE		4096
 /*
  * Memory offsets of registers redirected to memory by HCR_EL2.NV2
  * relative to the base address stored in VNCR_EL2.

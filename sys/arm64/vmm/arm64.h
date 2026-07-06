@@ -40,40 +40,124 @@ struct vgic_v3;
 struct vgic_v3_cpu;
 
 /*
+  Encode the index of a given register within VNCR into the enum value.
+  We move the indices up by VNCR_START to not interfere with values for
+  non-VNCR registers.
+*/
+#define VNCR_REG(reg) reg = (VNCR_START + VNCR_##reg / 8)
+/* Retrieve the VNCR offset from the enum value */
+#define REG_VNCR_OFFSET(val) ((val - VNCR_START) * 8)
+
+enum hypctx_sysreg {
+	/* VNCR Registers */
+	VNCR_START,
+
+	VNCR_REG(VTTBR_EL2),
+	VNCR_REG(VSTTBR_EL2),
+	VNCR_REG(VTCR_EL2),
+	VNCR_REG(VSTCR_EL2),
+	VNCR_REG(VMPIDR_EL2),	/* Virtualization Multiprocessor ID Register */
+	VNCR_REG(CNTVOFF_EL2),
+	VNCR_REG(HCR_EL2),	/* Hypervisor Configuration Register */
+	VNCR_REG(HSTR_EL2),
+	VNCR_REG(VPIDR_EL2),	/* Virtualization Processor ID Register */
+	VNCR_REG(TPIDR_EL2),
+	VNCR_REG(HCRX_EL2),	/* Extended Hypervisor Configuration Register */
+	VNCR_REG(VNCR_EL2),
+	VNCR_REG(CPACR_EL1),	/* Architectural Feature Access Control Register */
+	VNCR_REG(CONTEXTIDR_EL1),	/* Current Process Identifier */
+	VNCR_REG(SCTLR_EL1),	/* System Control Register */
+	VNCR_REG(ACTLR_EL1),	/* Auxiliary Control Register */
+	VNCR_REG(TCR_EL1),	/* Translation Control Register */
+	VNCR_REG(AFSR0_EL1),	/* Auxiliary Fault Status Register 0 */
+	VNCR_REG(AFSR1_EL1),	/* Auxiliary Fault Status Register 1 */
+	VNCR_REG(ESR_EL1),	/* Exception Syndrome Register */
+	VNCR_REG(MAIR_EL1),	/* Memory Attribute Indirection Register */
+	VNCR_REG(AMAIR_EL1),	/* Auxiliary Memory Attribute Indirection Register */
+	VNCR_REG(MDSCR_EL1),	/* Monitor Debug System Control Register */
+	VNCR_REG(SPSR_EL1),	/* Saved Program Status Register */
+	VNCR_REG(CNTV_CVAL_EL0),
+	VNCR_REG(CNTV_CTL_EL0),
+	VNCR_REG(CNTP_CVAL_EL0),
+	VNCR_REG(CNTP_CTL_EL0),
+	VNCR_REG(SCXTNUM_EL1),
+	VNCR_REG(TFSR_EL1),
+	VNCR_REG(HDFGRTR2_EL2),
+	VNCR_REG(CNTPOFF_EL2),
+	VNCR_REG(HDFGWTR2_EL2),
+	VNCR_REG(HFGRTR_EL2),
+	VNCR_REG(HFGWTR_EL2),
+	VNCR_REG(HFGITR_EL2),
+	VNCR_REG(HDFGRTR_EL2),
+	VNCR_REG(HDFGWTR_EL2),
+	VNCR_REG(ZCR_EL1),
+	VNCR_REG(HAFGRTR_EL2),
+	VNCR_REG(SMCR_EL1),
+	VNCR_REG(SMPRIMAP_EL2),
+	VNCR_REG(TTBR0_EL1),	/* Translation Table Base Register 0 */
+	VNCR_REG(TTBR1_EL1),	/* Translation Table Base Register 1 */
+	VNCR_REG(FAR_EL1),	/* Fault Address Register */
+	VNCR_REG(ELR_EL1),	/* Exception Link Register */
+	VNCR_REG(SP_EL1),
+	VNCR_REG(VBAR_EL1),	/* Vector Base Address Register */
+	VNCR_REG(TCR2_EL1),	/* Translation Control Register 2 */
+	VNCR_REG(SCTLR2_EL1),
+	VNCR_REG(MAIR2_EL1),
+	VNCR_REG(AMAIR2_EL1),
+	VNCR_REG(PIRE0_EL1),
+	VNCR_REG(PIRE0_EL2),
+	VNCR_REG(PIR_EL1),
+	VNCR_REG(POR_EL1),
+	VNCR_REG(S2PIR_EL2),
+	VNCR_REG(S2POR_EL1),
+	VNCR_REG(HFGRTR2_EL2),
+	VNCR_REG(HFGWTR2_EL2),
+	VNCR_REG(PFAR_EL1),
+	VNCR_REG(HFGITR2_EL2),
+	VNCR_REG(SCTLRMASK_EL1),
+	VNCR_REG(CPACRMASK_EL1),
+	VNCR_REG(SCTLR2MASK_EL1),
+	VNCR_REG(TCRMASK_EL1),
+	VNCR_REG(TCR2MASK_EL1),
+	VNCR_REG(ACTLRMASK_EL1),
+	VNCR_REG(ICH_HCR_EL2),
+	VNCR_REG(ICH_VMCR_EL2),
+	VNCR_REG(VDISR_EL2),
+	VNCR_REG(VSESR_EL2),
+	VNCR_REG(PMBLIMITR_EL1),
+	VNCR_REG(PMBPTR_EL1),
+	VNCR_REG(PMBSR_EL1),
+	VNCR_REG(PMSCR_EL1),
+	VNCR_REG(PMSEVFR_EL1),
+	VNCR_REG(PMSICR_EL1),
+	VNCR_REG(PMSIRR_EL1),
+	VNCR_REG(PMSLATFR_EL1),
+	VNCR_REG(PMSNEVFR_EL1),
+	VNCR_REG(PMSDSFR_EL1),
+	VNCR_REG(TRFCR_EL1),
+	VNCR_REG(TRCITECR_EL1),
+	VNCR_REG(GCSPR_EL1),
+	VNCR_REG(GCSCR_EL1),
+	VNCR_REG(BRBCR_EL1),
+	VNCR_REG(SPMACCESSR_EL1),
+};
+
+/*
  * Per-vCPU hypervisor state.
  */
 struct hypctx {
 	struct trapframe tf;
 
 	/*
-	 * EL1 control registers.
+	 * EL1 & EL0 registers.
 	 */
-	uint64_t	elr_el1;	/* Exception Link Register */
 	uint64_t	sp_el0;		/* Stack pointer */
 	uint64_t	tpidr_el0;	/* EL0 Software ID Register */
 	uint64_t	tpidrro_el0;	/* Read-only Thread ID Register */
 	uint64_t	tpidr_el1;	/* EL1 Software ID Register */
-	uint64_t	vbar_el1;	/* Vector Base Address Register */
-
-	uint64_t	actlr_el1;	/* Auxiliary Control Register */
-	uint64_t	afsr0_el1;	/* Auxiliary Fault Status Register 0 */
-	uint64_t	afsr1_el1;	/* Auxiliary Fault Status Register 1 */
-	uint64_t	amair_el1;	/* Auxiliary Memory Attribute Indirection Register */
-	uint64_t	contextidr_el1;	/* Current Process Identifier */
-	uint64_t	cpacr_el1;	/* Architectural Feature Access Control Register */
 	uint64_t	csselr_el1;	/* Cache Size Selection Register */
-	uint64_t	esr_el1;	/* Exception Syndrome Register */
-	uint64_t	far_el1;	/* Fault Address Register */
-	uint64_t	mair_el1;	/* Memory Attribute Indirection Register */
 	uint64_t	mdccint_el1;	/* Monitor DCC Interrupt Enable Register */
-	uint64_t	mdscr_el1;	/* Monitor Debug System Control Register */
 	uint64_t	par_el1;	/* Physical Address Register */
-	uint64_t	sctlr_el1;	/* System Control Register */
-	uint64_t	tcr_el1;	/* Translation Control Register */
-	uint64_t	tcr2_el1;	/* Translation Control Register 2 */
-	uint64_t	ttbr0_el1;	/* Translation Table Base Register 0 */
-	uint64_t	ttbr1_el1;	/* Translation Table Base Register 1 */
-	uint64_t	spsr_el1;	/* Saved Program Status Register */
 
 	uint64_t	pmcr_el0;	/* Performance Monitors Control Register */
 	uint64_t	pmccntr_el0;
@@ -100,6 +184,8 @@ struct hypctx {
 	uint64_t	mdcr_el2;	/* Monitor Debug Configuration Register */
 	uint64_t	vpidr_el2;	/* Virtualization Processor ID Register */
 	uint64_t	vmpidr_el2;	/* Virtualization Multiprocessor ID Register */
+	/* On systems without NV2 this still points to the register storage memory page */
+	uint64_t	vncr_el2;	/* Virtual Nested Control Register */
 
 	/* FEAT_FGT registers */
 	/*uint64_t	hafgrtr_el2; *//* For FEAT_AMUv1 (not supported) */
@@ -116,7 +202,6 @@ struct hypctx {
 	uint64_t	hfgrtr2_el2;
 	uint64_t	hfgwtr2_el2;
 
-	uint64_t	el2_addr;	/* The address of this in el2 space */
 	struct hyp	*hyp;
 	struct vcpu	*vcpu;
 	struct {
@@ -136,7 +221,48 @@ struct hypctx {
 	struct vgic_v3_cpu	*vgic_cpu;
 	bool			has_exception;
 	bool			dbg_oslock;
+
+	/*
+	 * Memory page pointed at by VNCR_EL2. Contains storage for registers
+	 * the accesses to which are redirected to memory by FEAT_NV2.
+	 * NOTE: The storage is still used even if FEAT_NV2 is not present.
+	 */
+	void *vncr_regs;
+	/* Memory page used to store the host's values of VNCR registers. */
+	void *host_vncr_regs;
+
+	uint64_t	el2_addr;	/* The address of this in el2 space */
+	uint64_t	el2_vncr_addr;	/* The address of vncr_regs in el2 space */
+	uint64_t	el2_host_vncr_addr;
 };
+
+/* For non-VHE vmm_hyp.c, this will already be defined in vmm_nvhe.c */
+#ifndef __hypctx_vncr_sysreg
+#define __hypctx_vncr_sysreg(hypctx, reg)       \
+	((uint64_t *)((char *)hypctx->vncr_regs + REG_VNCR_OFFSET(reg)))
+#endif
+
+static inline uint64_t *
+hypctx_sys_reg(struct hypctx *hypctx, int reg /* enum hypctx_sysreg  */)
+{
+	if (reg > VNCR_START)
+		return (__hypctx_vncr_sysreg(hypctx, reg));
+	/* TODO: uniform handling for non-VNCR registers */
+	return (NULL);
+}
+
+static inline void
+hypctx_write_sys_reg(struct hypctx *hypctx, enum hypctx_sysreg reg,
+    uint64_t val)
+{
+	*hypctx_sys_reg(hypctx, reg) = val;
+}
+
+static inline uint64_t
+hypctx_read_sys_reg(struct hypctx *hypctx, enum hypctx_sysreg reg)
+{
+	return (*hypctx_sys_reg(hypctx, reg));
+}
 
 struct hyp {
 	struct vm	*vm;

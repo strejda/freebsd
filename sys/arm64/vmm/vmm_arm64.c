@@ -490,7 +490,8 @@ el2_hyp_size(struct vm *vm)
 static vm_size_t
 el2_hypctx_size(void)
 {
-	return (round_page(sizeof(struct hypctx)));
+	/* Allocation for hypctx, one vncr page & one host state page */
+	return (round_page(sizeof(struct hypctx) + 2 * VNCR_PAGE_SIZE));
 }
 
 static vm_offset_t
@@ -559,7 +560,17 @@ vmmops_vcpu_init(void *vmi, struct vcpu *vcpu1, int vcpuid)
 	vm_size_t size;
 
 	size = el2_hypctx_size();
+	/*
+	 * Allocation memory layout:
+	   0x0000 - 0x0fff <- struct hypctx
+	   0x1000 - 0x1fff <- VNCR memory page
+	   0x2000 - 0x2fff <- host_ctx memory page
+	 */
 	hypctx = malloc_aligned(size, PAGE_SIZE, M_HYP, M_WAITOK | M_ZERO);
+	_Static_assert(sizeof(struct hypctx) < VNCR_PAGE_SIZE,
+				   "struct hypctx exceeds VNCR_PAGE_SIZE");
+	hypctx->vncr_regs = (void *)((char *)hypctx + VNCR_PAGE_SIZE);
+	hypctx->host_vncr_regs = (void *)((char *)hypctx + 2 * VNCR_PAGE_SIZE);
 
 	KASSERT(vcpuid >= 0 && vcpuid < vm_get_maxcpus(hyp->vm),
 	    ("%s: Invalid vcpuid %d", __func__, vcpuid));
@@ -574,9 +585,12 @@ vmmops_vcpu_init(void *vmi, struct vcpu *vcpu1, int vcpuid)
 	vtimer_cpuinit(hypctx);
 	vgic_cpuinit(hypctx);
 
-	if (!in_vhe())
+	if (!in_vhe()) {
 		hypctx->el2_addr = el2_map_enter((vm_offset_t)hypctx, size,
 		    VM_PROT_READ | VM_PROT_WRITE);
+		hypctx->el2_vncr_addr = hypctx->el2_addr + VNCR_PAGE_SIZE;
+		hypctx->el2_host_vncr_addr = hypctx->el2_addr + 2 * VNCR_PAGE_SIZE;
+	}
 
 	return (hypctx);
 }
@@ -639,12 +653,14 @@ arm64_gen_inst_emul_data(struct hypctx *hypctx, uint32_t esr_iss,
 	vie->reg = reg_num;
 
 	paging = &vme_ret->u.inst_emul.paging;
-	paging->ttbr0_addr = hypctx->ttbr0_el1 & ~(TTBR_ASID_MASK | TTBR_CnP);
-	paging->ttbr1_addr = hypctx->ttbr1_el1 & ~(TTBR_ASID_MASK | TTBR_CnP);
-	paging->tcr_el1 = hypctx->tcr_el1;
-	paging->tcr2_el1 = hypctx->tcr2_el1;
+	paging->ttbr0_addr = hypctx_read_sys_reg(hypctx, TTBR0_EL1) &
+		~(TTBR_ASID_MASK | TTBR_CnP);
+	paging->ttbr1_addr = hypctx_read_sys_reg(hypctx, TTBR1_EL1) &
+		~(TTBR_ASID_MASK | TTBR_CnP);
+	paging->tcr_el1 = hypctx_read_sys_reg(hypctx, TCR_EL1);
+	paging->tcr2_el1 = hypctx_read_sys_reg(hypctx, TCR2_EL1);
 	paging->flags = hypctx->tf.tf_spsr & (PSR_M_MASK | PSR_M_32);
-	if ((hypctx->sctlr_el1 & SCTLR_M) != 0)
+	if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) & SCTLR_M) != 0)
 		paging->flags |= VM_GP_MMU_ENABLED;
 }
 
@@ -1078,7 +1094,7 @@ fault:
 int
 vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 {
-	uint64_t excp_type;
+	uint64_t excp_type, vbar_el1;
 	int handled;
 	register_t daif;
 	struct hyp *hyp;
@@ -1097,36 +1113,41 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 	for (;;) {
 		if (hypctx->has_exception) {
 			hypctx->has_exception = false;
-			hypctx->elr_el1 = hypctx->tf.tf_elr;
+			hypctx_write_sys_reg(hypctx, ELR_EL1, hypctx->tf.tf_elr);
 
 			mode = hypctx->tf.tf_spsr & (PSR_M_MASK | PSR_M_32);
 
+			vbar_el1 = hypctx_read_sys_reg(hypctx, VBAR_EL1);
 			if (mode == PSR_M_EL1t) {
-				hypctx->tf.tf_elr = hypctx->vbar_el1 + 0x0;
+				hypctx->tf.tf_elr = vbar_el1 + 0x0;
 			} else if (mode == PSR_M_EL1h) {
-				hypctx->tf.tf_elr = hypctx->vbar_el1 + 0x200;
+				hypctx->tf.tf_elr = vbar_el1 + 0x200;
 			} else if ((mode & PSR_M_32) == PSR_M_64) {
 				/* 64-bit EL0 */
-				hypctx->tf.tf_elr = hypctx->vbar_el1 + 0x400;
+				hypctx->tf.tf_elr = vbar_el1 + 0x400;
 			} else {
 				/* 32-bit EL0 */
-				hypctx->tf.tf_elr = hypctx->vbar_el1 + 0x600;
+				hypctx->tf.tf_elr = vbar_el1 + 0x600;
 			}
 
 			/* Set the new spsr */
-			hypctx->spsr_el1 = hypctx->tf.tf_spsr;
+			hypctx_write_sys_reg(hypctx, SPSR_EL1, hypctx->tf.tf_spsr);
 
 			/* Set the new cpsr */
-			hypctx->tf.tf_spsr = hypctx->spsr_el1 & PSR_FLAGS;
+			hypctx->tf.tf_spsr = hypctx_read_sys_reg(hypctx,
+						 SPSR_EL1) & PSR_FLAGS;
+
 			hypctx->tf.tf_spsr |= PSR_DAIF | PSR_M_EL1h;
 
 			/*
 			 * Update fields that may change on exeption entry
 			 * based on how sctlr_el1 is configured.
 			 */
-			if ((hypctx->sctlr_el1 & SCTLR_SPAN) == 0)
+			if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) &
+			     SCTLR_SPAN) == 0)
 				hypctx->tf.tf_spsr |= PSR_PAN;
-			if ((hypctx->sctlr_el1 & SCTLR_DSSBS) == 0)
+			if ((hypctx_read_sys_reg(hypctx, SCTLR_EL1) &
+			     SCTLR_DSSBS) == 0)
 				hypctx->tf.tf_spsr &= ~PSR_SSBS;
 			else
 				hypctx->tf.tf_spsr |= PSR_SSBS;
@@ -1259,15 +1280,15 @@ hypctx_regptr(struct hypctx *hypctx, int reg)
 	case VM_REG_GUEST_PC:
 		return (&hypctx->tf.tf_elr);
 	case VM_REG_GUEST_SCTLR_EL1:
-		return (&hypctx->sctlr_el1);
+		return hypctx_sys_reg(hypctx, SCTLR_EL1);
 	case VM_REG_GUEST_TTBR0_EL1:
-		return (&hypctx->ttbr0_el1);
+		return hypctx_sys_reg(hypctx, TTBR0_EL1);
 	case VM_REG_GUEST_TTBR1_EL1:
-		return (&hypctx->ttbr1_el1);
+		return hypctx_sys_reg(hypctx, TTBR1_EL1);
 	case VM_REG_GUEST_TCR_EL1:
-		return (&hypctx->tcr_el1);
+		return hypctx_sys_reg(hypctx, TCR_EL1);
 	case VM_REG_GUEST_TCR2_EL1:
-		return (&hypctx->tcr2_el1);
+		return hypctx_sys_reg(hypctx, TCR2_EL1);
 	case VM_REG_GUEST_MPIDR_EL1:
 		return (&hypctx->vmpidr_el2);
 	default:
@@ -1327,8 +1348,8 @@ vmmops_exception(void *vcpui, uint64_t esr, uint64_t far)
 		panic("%s: %s%d is running", __func__, vm_name(hypctx->hyp->vm),
 		    vcpu_vcpuid(hypctx->vcpu));
 
-	hypctx->far_el1 = far;
-	hypctx->esr_el1 = esr;
+	hypctx_write_sys_reg(hypctx, FAR_EL1, far);
+	hypctx_write_sys_reg(hypctx, ESR_EL1, esr);
 	hypctx->has_exception = true;
 
 	return (0);
@@ -1382,17 +1403,18 @@ vmmops_setcap(void *vcpui, int num, int val)
 
 		if (val != 0) {
 			hypctx->debug_spsr |= (hypctx->tf.tf_spsr & PSR_SS);
-			hypctx->debug_mdscr |= (hypctx->mdscr_el1 & MDSCR_SS);
+			hypctx->debug_mdscr |=
+				(hypctx_read_sys_reg(hypctx, MDSCR_EL1) & MDSCR_SS);
 
 			hypctx->tf.tf_spsr |= PSR_SS;
-			hypctx->mdscr_el1 |= MDSCR_SS;
+			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= MDSCR_SS;
 			hypctx->mdcr_el2 |= MDCR_EL2_TDE;
 		} else {
 			hypctx->tf.tf_spsr &= ~PSR_SS;
 			hypctx->tf.tf_spsr |= hypctx->debug_spsr;
 			hypctx->debug_spsr &= ~PSR_SS;
-			hypctx->mdscr_el1 &= ~MDSCR_SS;
-			hypctx->mdscr_el1 |= hypctx->debug_mdscr;
+			*hypctx_sys_reg(hypctx, MDSCR_EL1) &= ~MDSCR_SS;
+			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= hypctx->debug_mdscr;
 			hypctx->debug_mdscr &= ~MDSCR_SS;
 			if ((hypctx->setcaps & (1ul << VM_CAP_BRK_EXIT)) == 0)
 				hypctx->mdcr_el2 &= ~MDCR_EL2_TDE;

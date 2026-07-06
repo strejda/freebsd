@@ -55,19 +55,8 @@ reset_vm_el01_regs(void *vcpu)
 
 	set_arch_unknown(el2ctx->tf);
 
-	set_arch_unknown(el2ctx->actlr_el1);
-	set_arch_unknown(el2ctx->afsr0_el1);
-	set_arch_unknown(el2ctx->afsr1_el1);
-	set_arch_unknown(el2ctx->amair_el1);
-	set_arch_unknown(el2ctx->contextidr_el1);
-	set_arch_unknown(el2ctx->cpacr_el1);
 	set_arch_unknown(el2ctx->csselr_el1);
-	set_arch_unknown(el2ctx->elr_el1);
-	set_arch_unknown(el2ctx->esr_el1);
-	set_arch_unknown(el2ctx->far_el1);
-	set_arch_unknown(el2ctx->mair_el1);
 	set_arch_unknown(el2ctx->mdccint_el1);
-	set_arch_unknown(el2ctx->mdscr_el1);
 	set_arch_unknown(el2ctx->par_el1);
 
 	/*
@@ -77,19 +66,14 @@ reset_vm_el01_regs(void *vcpu)
 	 * SCTLR_CP15BEN: memory barrier instruction enable from EL0; RAO/WI
 	 * ~SCTLR_I: instruction cache off
 	 */
-	el2ctx->sctlr_el1 = SCTLR_RES1;
-	el2ctx->sctlr_el1 &= ~SCTLR_M & ~SCTLR_C & ~SCTLR_I;
-	el2ctx->sctlr_el1 |= SCTLR_CP15BEN;
+	*hypctx_sys_reg(el2ctx, SCTLR_EL1) = SCTLR_RES1;
+	*hypctx_sys_reg(el2ctx, SCTLR_EL1) &= ~SCTLR_M & ~SCTLR_C & ~SCTLR_I;
+	*hypctx_sys_reg(el2ctx, SCTLR_EL1) |= SCTLR_CP15BEN;
 
 	set_arch_unknown(el2ctx->sp_el0);
-	set_arch_unknown(el2ctx->tcr_el1);
 	set_arch_unknown(el2ctx->tpidr_el0);
 	set_arch_unknown(el2ctx->tpidr_el1);
 	set_arch_unknown(el2ctx->tpidrro_el0);
-	set_arch_unknown(el2ctx->ttbr0_el1);
-	set_arch_unknown(el2ctx->ttbr1_el1);
-	set_arch_unknown(el2ctx->vbar_el1);
-	set_arch_unknown(el2ctx->spsr_el1);
 
 	set_arch_unknown(el2ctx->dbgbcr_el1);
 	set_arch_unknown(el2ctx->dbgbvr_el1);
