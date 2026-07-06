@@ -678,7 +678,11 @@ main(int argc, char *argv[])
 			 * issue
 			 */
 			if (wret == ERR)
+			{
+				if (errno == EINTR)
+					continue;
 				exit(0);
+			}
 			in = (int)win;
 
 			resize_check();
