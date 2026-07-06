@@ -89,6 +89,37 @@ enum hypctx_sysreg {
 	DBGWVR0_EL1,	/* Debug Watchpoint Value Registers */
 	DBGWVR15_EL1 = DBGWVR0_EL1 + 15,
 
+	/* EL2 registers used to control the guest, but not exposed to it */
+	HOST_CPTR_EL2,	 /* Architectural Feature Trap Register */
+	HOST_HCR_EL2,	 /* Hypervisor Configuration Register */
+	HOST_HCRX_EL2,	 /* Extended Hypervisor Configuration Register */
+	HOST_MDCR_EL2,	 /* Monitor Debug Configuration Register */
+	HOST_VPIDR_EL2,	 /* Virtualization Processor ID Register */
+	HOST_VMPIDR_EL2, /* Virtualization Multiprocessor ID Register */
+	/* On systems without NV2 this still points to the register storage
+	   memory page */
+	HOST_VNCR_EL2, /* Virtual Nested Control Register */
+	HOST_VTTBR_EL2,
+
+	/* FEAT_FGT registers */
+	/*HOST_HAFGRTR_EL2; */ /* For FEAT_AMUv1 (not supported) */
+	HOST_HDFGRTR_EL2,
+	HOST_HDFGWTR_EL2,
+	HOST_HFGITR_EL2,
+	HOST_HFGRTR_EL2,
+	HOST_HFGWTR_EL2,
+
+	/* FEAT_FGT2 registers */
+	HOST_HDFGRTR2_EL2,
+	HOST_HDFGWTR2_EL2,
+	HOST_HFGITR2_EL2,
+	HOST_HFGRTR2_EL2,
+	HOST_HFGWTR2_EL2,
+
+	/* Exit info registers */
+	HOST_FAR_EL2,	/* Fault Address Register */
+	HOST_HPFAR_EL2,	/* Hypervisor IPA Fault Address Register */
+
 	NR_NON_VNCR_REGS,
 
 	/* VNCR Registers */
@@ -201,48 +232,11 @@ struct hypctx {
 	struct trapframe tf;
 	/* Virtual-address-sized registers */
 	uint64_t va_regs[VA_REGS_END - VA_REGS_START - 1];
-	/* Non-VNCR guest register state */
+	/* Non-VNCR register state */
 	uint64_t sys_regs[NR_NON_VNCR_REGS];
-
-	/* EL2 registers which we use to control the guest but do not expose to it */
-	uint64_t	cptr_el2;	/* Architectural Feature Trap Register */
-	uint64_t	hcr_el2;	/* Hypervisor Configuration Register */
-	uint64_t	hcrx_el2;	/* Extended Hypervisor Configuration Register */
-	uint64_t	mdcr_el2;	/* Monitor Debug Configuration Register */
-	uint64_t	vpidr_el2;	/* Virtualization Processor ID Register */
-	uint64_t	vmpidr_el2;	/* Virtualization Multiprocessor ID Register */
-	/* On systems without NV2 this still points to the register storage memory page */
-	uint64_t	vncr_el2;	/* Virtual Nested Control Register */
-
-	/* FEAT_FGT registers */
-	/*uint64_t	hafgrtr_el2; *//* For FEAT_AMUv1 (not supported) */
-	uint64_t	hdfgrtr_el2;
-	uint64_t	hdfgwtr_el2;
-	uint64_t	hfgitr_el2;
-	uint64_t	hfgrtr_el2;
-	uint64_t	hfgwtr_el2;
-
-	/* FEAT_FGT2 registers */
-	uint64_t	hdfgrtr2_el2;
-	uint64_t	hdfgwtr2_el2;
-	uint64_t	hfgitr2_el2;
-	uint64_t	hfgrtr2_el2;
-	uint64_t	hfgwtr2_el2;
-
-	uint64_t	vttbr_el2;
-
-	/* Storage for *host* timer registers */
-	struct {
-		uint64_t cnthctl_el2;
-		uint64_t cntvoff_el2;
-	} host_timer_regs;
 
 	struct hyp	*hyp;
 	struct vcpu	*vcpu;
-	struct {
-		uint64_t	far_el2;	/* Fault Address Register */
-		uint64_t	hpfar_el2;	/* Hypervisor IPA Fault Address Register */
-	} exit_info;
 
 	struct vtimer	vtimer;
 	struct vtimer_cpu 	vtimer_cpu;

@@ -431,7 +431,7 @@ mpidr_to_vcpu(struct hyp *hyp, uint64_t mpidr)
 	vm = hyp->vm;
 	for (int i = 0; i < vm_get_maxcpus(vm); i++) {
 		hypctx = hyp->ctx[i];
-		if (hypctx != NULL && (hypctx->vmpidr_el2 & GICD_AFF) == mpidr)
+		if (hypctx != NULL && (hypctx_read_sys_reg(hypctx, HOST_VMPIDR_EL2) & GICD_AFF) == mpidr)
 			return (i);
 	}
 	return (-1);
@@ -481,7 +481,7 @@ vgic_v3_cpuinit(device_t dev, struct hypctx *hypctx)
 		mtx_init(&irq->irq_spinmtx, "VGIC IRQ spinlock", NULL,
 		    MTX_SPIN);
 		irq->irq = irqid;
-		irq->mpidr = hypctx->vmpidr_el2 & GICD_AFF;
+		irq->mpidr = hypctx_read_sys_reg(hypctx, HOST_VMPIDR_EL2) & GICD_AFF;
 		irq->target_vcpu = vcpu_vcpuid(hypctx->vcpu);
 		MPASS(irq->target_vcpu >= 0);
 
@@ -1470,7 +1470,7 @@ redist_typer_read(struct hypctx *hypctx, u_int reg, uint64_t *rval, void *arg)
 	if (vcpu_vcpuid(hypctx->vcpu) == (vgic_max_cpu_count(hypctx->hyp) - 1))
 		last_vcpu = true;
 
-	vmpidr_el2 = hypctx->vmpidr_el2;
+	vmpidr_el2 = hypctx_read_sys_reg(hypctx, HOST_VMPIDR_EL2);
 	MPASS(vmpidr_el2 != 0);
 	/*
 	 * Get affinity for the current CPU. The guest CPU affinity is taken

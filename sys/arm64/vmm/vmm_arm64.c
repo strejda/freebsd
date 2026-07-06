@@ -638,9 +638,9 @@ arm64_gen_inst_emul_data(struct hypctx *hypctx, uint32_t esr_iss,
 	 * Get the page address from HPFAR_EL2.
 	 */
 	vme_ret->u.inst_emul.gpa =
-	    HPFAR_EL2_FIPA_ADDR(hypctx->exit_info.hpfar_el2);
+	    HPFAR_EL2_FIPA_ADDR(hypctx_read_sys_reg(hypctx, HOST_HPFAR_EL2));
 	/* Bits [11:0] are the same as bits [11:0] from the virtual address. */
-	vme_ret->u.inst_emul.gpa += hypctx->exit_info.far_el2 &
+	vme_ret->u.inst_emul.gpa += hypctx_read_sys_reg(hypctx, HOST_FAR_EL2) &
 	    FAR_EL2_HPFAR_PAGE_MASK;
 
 	esr_sas = (esr_iss & ISS_DATA_SAS_MASK) >> ISS_DATA_SAS_SHIFT;
@@ -755,11 +755,11 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 		case ISS_DATA_DFSC_PF_L1:
 		case ISS_DATA_DFSC_PF_L2:
 		case ISS_DATA_DFSC_PF_L3:
-			gpa = HPFAR_EL2_FIPA_ADDR(hypctx->exit_info.hpfar_el2);
+			gpa = HPFAR_EL2_FIPA_ADDR(hypctx_read_sys_reg(hypctx, HOST_HPFAR_EL2));
 			/* Check the IPA is valid */
 			if (gpa >= (1ul << vmm_max_ipa_bits)) {
 				raise_data_insn_abort(hypctx,
-				    hypctx->exit_info.far_el2,
+				    hypctx_read_sys_reg(hypctx, HOST_FAR_EL2),
 				    esr_ec == EXCP_DATA_ABORT_L,
 				    ISS_DATA_DFSC_ASF_L0);
 				vme_ret->inst_length = 0;
@@ -777,7 +777,7 @@ handle_el1_sync_excp(struct hypctx *hypctx, struct vm_exit *vme_ret,
 				 * not executable
 				 */
 				raise_data_insn_abort(hypctx,
-				    hypctx->exit_info.far_el2, false,
+				    hypctx_read_sys_reg(hypctx, HOST_FAR_EL2), false,
 				    ISS_DATA_DFSC_EXT);
 				vme_ret->inst_length = 0;
 				return (HANDLED);
@@ -1170,7 +1170,7 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 
 		/* Activate the stage2 pmap so the vmid is valid */
 		pmap_activate_vm(pmap);
-		hypctx->vttbr_el2 = pmap_to_ttbr0(pmap);
+		hypctx_write_sys_reg(hypctx, HOST_VTTBR_EL2, pmap_to_ttbr0(pmap));
 
 		/*
 		 * TODO: What happens if a timer interrupt is asserted exactly
@@ -1199,8 +1199,8 @@ vmmops_run(void *vcpui, register_t pc, pmap_t pmap, struct vm_eventinfo *evinfo)
 		vme->inst_length = INSN_SIZE;
 		vme->u.hyp.exception_nr = excp_type;
 		vme->u.hyp.esr_el2 = hypctx->tf.tf_esr;
-		vme->u.hyp.far_el2 = hypctx->exit_info.far_el2;
-		vme->u.hyp.hpfar_el2 = hypctx->exit_info.hpfar_el2;
+		vme->u.hyp.far_el2 = hypctx_read_sys_reg(hypctx, HOST_FAR_EL2);
+		vme->u.hyp.hpfar_el2 = hypctx_read_sys_reg(hypctx, HOST_HPFAR_EL2);
 
 		handled = arm64_handle_world_switch(hypctx, excp_type, vme,
 		    pmap);
@@ -1290,7 +1290,7 @@ hypctx_regptr(struct hypctx *hypctx, int reg)
 	case VM_REG_GUEST_TCR2_EL1:
 		return hypctx_sys_reg(hypctx, TCR2_EL1);
 	case VM_REG_GUEST_MPIDR_EL1:
-		return (&hypctx->vmpidr_el2);
+		return hypctx_sys_reg(hypctx, HOST_VMPIDR_EL2);
 	default:
 		break;
 	}
@@ -1393,9 +1393,9 @@ vmmops_setcap(void *vcpui, int num, int val)
 		if ((val != 0) == ((hypctx->setcaps & (1ul << num)) != 0))
 			break;
 		if (val != 0)
-			hypctx->mdcr_el2 |= MDCR_EL2_TDE;
+			*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) |= MDCR_EL2_TDE;
 		else if ((hypctx->setcaps & (1ul << VM_CAP_SS_EXIT)) == 0)
-			hypctx->mdcr_el2 &= ~MDCR_EL2_TDE;
+			*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) &= ~MDCR_EL2_TDE;
 		break;
 	case VM_CAP_SS_EXIT:
 		if ((val != 0) == ((hypctx->setcaps & (1ul << num)) != 0))
@@ -1408,7 +1408,7 @@ vmmops_setcap(void *vcpui, int num, int val)
 
 			hypctx->tf.tf_spsr |= PSR_SS;
 			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= MDSCR_SS;
-			hypctx->mdcr_el2 |= MDCR_EL2_TDE;
+			*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) |= MDCR_EL2_TDE;
 		} else {
 			hypctx->tf.tf_spsr &= ~PSR_SS;
 			hypctx->tf.tf_spsr |= hypctx->debug_spsr;
@@ -1417,7 +1417,7 @@ vmmops_setcap(void *vcpui, int num, int val)
 			*hypctx_sys_reg(hypctx, MDSCR_EL1) |= hypctx->debug_mdscr;
 			hypctx->debug_mdscr &= ~MDSCR_SS;
 			if ((hypctx->setcaps & (1ul << VM_CAP_BRK_EXIT)) == 0)
-				hypctx->mdcr_el2 &= ~MDCR_EL2_TDE;
+				*hypctx_sys_reg(hypctx, HOST_MDCR_EL2) &= ~MDCR_EL2_TDE;
 		}
 		break;
 	case VM_CAP_MASK_HWINTR:
