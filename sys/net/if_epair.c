@@ -351,6 +351,10 @@ epair_transmit(struct ifnet *ifp, struct mbuf *m)
 		return (E2BIG);
 	}
 
+	if ((ifp->if_capenable & IFCAP_MEXTPG) == 0) {
+		M_ASSERTMAPPED(m);
+	}
+
 	/*
 	 * We are not going to use the interface en/dequeue mechanism
 	 * on the TX side. We are called from ether_output_frame()
@@ -632,7 +636,8 @@ epair_setup_ifp(struct epair_softc *sc, char *name, int unit)
 	ifp->if_capabilities =
 	    IFCAP_VLAN_MTU | IFCAP_VLAN_HWTAGGING |
 	    IFCAP_TXCSUM | IFCAP_RXCSUM |
-	    IFCAP_TXCSUM_IPV6 | IFCAP_RXCSUM_IPV6;
+	    IFCAP_TXCSUM_IPV6 | IFCAP_RXCSUM_IPV6 |
+	    IFCAP_MEXTPG;
 	ifp->if_capenable = ifp->if_capabilities;
 	epair_caps_changed(ifp);
 	ifp->if_transmit = epair_transmit;
