@@ -53,7 +53,7 @@ cpu_get_pcpu(device_t dev)
 
 /*
  * Assumes the parent bus sets the CPU_IVAR_PCPU instance variable, which most
- * CPU buses do.  A panic will ensure if not the case.  Calling devices should
+ * CPU buses do.  A panic will ensue if not the case.  Calling devices should
  * check for that condition (most probably in their attach function).
  */
 static __inline u_int
