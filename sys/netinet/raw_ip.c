@@ -904,8 +904,7 @@ rip_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 	KASSERT(inp != NULL, ("rip_connect: inp == NULL"));
 
 	INP_WLOCK(inp);
-	if (inp->inp_faddr.s_addr != INADDR_ANY &&
-	    addr->sin_addr.s_addr == INADDR_ANY)
+	if (__predict_false(inp->inp_faddr.s_addr != INADDR_ANY))
 		rip_dodisconnect(inp, false);
 	if (addr->sin_addr.s_addr != INADDR_ANY) {
 		inp->inp_faddr = addr->sin_addr;
