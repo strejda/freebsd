@@ -92,7 +92,6 @@ ${PACKAGE}FILESMODE_sonewconn_overflow.py=0555
 BINDIR=		${TESTSDIR}
 PROGS+=		coredump_phnum_helper
 PROGS+=		pdeathsig_helper
-PROGS+=		sendfile_helper
 
 CFLAGS.aslr+=				-I${SRCTOP}/tests
 LIBADD.aslr+=				util
@@ -116,7 +115,6 @@ LIBADD.procdesc+=			kvm pthread
 LIBADD.shutdown_dgram+=			pthread
 LIBADD.socket_msg_waitall+=		pthread
 LIBADD.socket_splice+=			pthread
-LIBADD.sendfile_helper+=		pthread
 LIBADD.fdgrowtable_test+=		util pthread kvm procstat
 LIBADD.sigwait+=			rt
 LIBADD.ktrace_test+=			sysdecode

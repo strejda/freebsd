@@ -51,6 +51,9 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20260707: Move sendfile_helper to tests/sys/common
+OLD_FILES+=usr/tests/sys/kern/sendfile_helper
+
 # 20260707: Removed GNU subtree
 OLD_FILES+=usr/tests/gnu/Kyuafile
 OLD_FILES+=usr/tests/gnu/lib/Kyuafile

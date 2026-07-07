@@ -43,7 +43,7 @@
 #include <unistd.h>
 
 static char buf[1024*1024];
-ssize_t readlen;
+static ssize_t readlen;
 static volatile bool read_done = false;
 
 static int
