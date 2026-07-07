@@ -17,6 +17,7 @@ MAN=	aac.4 \
 	${_acpi_asus.4} \
 	${_acpi_asus_wmi.4} \
 	${_acpi_dock.4} \
+	acpi_einj.4 \
 	${_acpi_fujitsu.4} \
 	${_acpi_hp.4} \
 	${_acpi_ibm.4} \
