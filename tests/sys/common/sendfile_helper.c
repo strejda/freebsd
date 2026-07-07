@@ -31,6 +31,7 @@
 #include <sys/uio.h>
 
 #include <netinet/in.h>
+#include <netdb.h>
 
 #include <err.h>
 #include <errno.h>
@@ -101,6 +102,44 @@ tcp_socketpair(int *sv)
 	return (0);
 }
 
+static int
+tcp_client_socket(const char *host, const char *port)
+{
+	struct addrinfo hints, *res, *res0;
+	int error;
+	int s;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	if ((error = getaddrinfo(host, port, &hints, &res0)) != 0)
+		errx(1, "host %s port %s: %s.",
+		    host, port, gai_strerror(error));
+	s = -1;
+	for (res = res0; res != NULL; res = res->ai_next) {
+		s = socket(res->ai_family, res->ai_socktype,
+			res->ai_protocol);
+		if (s < 0) {
+			warn("socket(pf:%d, type:%d, proto:%d)",
+			    res->ai_family, res->ai_socktype,
+			    res->ai_protocol);
+			continue;
+		}
+		if (connect(s, res->ai_addr, res->ai_addrlen) < 0) {
+			warn("connect(%s, %s)", host, port);
+			close(s);
+			s = -1;
+			continue;
+		} else
+			break;
+	}
+	if (s < 0)
+		exit(1);
+	freeaddrinfo(res0);
+
+	return s;
+}
+
 static void *
 receiver(void *arg)
 {
@@ -124,7 +163,8 @@ receiver(void *arg)
 static void
 usage(void)
 {
-	errx(1, "usage: %s [-u] <file> <start> <len> <flags>", getprogname());
+	errx(1, "usage: %s [-u] [-c host] [-p port] "
+	    "<file> <start> <len> <flags>", getprogname());
 }
 
 int
@@ -134,9 +174,19 @@ main(int argc, char **argv)
 	off_t start;
 	int ch, fd, ss[2], flags, error;
 	bool pf_unix = false;
+	bool tcp_client = false;
+	const char *host, *port;
 
-	while ((ch = getopt(argc, argv, "u")) != -1)
+	while ((ch = getopt(argc, argv, "c:p:u")) != -1)
 		switch (ch) {
+		case 'c':
+			host = optarg;
+			tcp_client = true;
+			break;
+		case 'p':
+			port = optarg;
+			tcp_client = true;
+			break;
 		case 'u':
 			pf_unix = true;
 			break;
@@ -148,6 +198,8 @@ main(int argc, char **argv)
 
 	if (argc != 4)
 		usage();
+	if (tcp_client && (host == NULL || port == NULL))
+		errx(1, "Need to specify host and port.");
 
 	start = strtoull(argv[1], NULL, 0);
 	readlen = strtoull(argv[2], NULL, 0);
@@ -160,12 +212,18 @@ main(int argc, char **argv)
 	if (pf_unix) {
 		if (socketpair(PF_LOCAL, SOCK_STREAM, 0, ss) != 0)
 			err(1, "socketpair");
-	} else
+	} else if (tcp_client)
+		ss[0] = tcp_client_socket(host, port);
+	else
 		tcp_socketpair(ss);
 
-	error = pthread_create(&pt, NULL, receiver, &ss[1]);
-	if (error)
-		errc(1, error, "pthread_create");
+	if (tcp_client)
+		read_done = true;	/* The receiver is another process. */
+	else {
+		error = pthread_create(&pt, NULL, receiver, &ss[1]);
+		if (error)
+			errc(1, error, "pthread_create");
+	}
 
 	if (sendfile(fd, ss[0], start, readlen, NULL, NULL, flags) < 0)
 		err(3, "sendfile");
