@@ -615,7 +615,7 @@ hest_attach(device_t dev)
 
 	if (!apei_sysctl_tree) {
 		/* Install hw.acpi.apei sysctl tree */
-		acpi_sc = acpi_device_get_parent_softc(dev);
+		acpi_sc = acpi_device_get_parent_softc(device_get_parent(dev));
 		apei_sysctl_tree = SYSCTL_ADD_NODE(&apei_sysctl_ctx,
 		    SYSCTL_CHILDREN(acpi_sc->acpi_sysctl_tree), OID_AUTO,
 		    "apei", CTLFLAG_RD | CTLFLAG_MPSAFE, 0,
