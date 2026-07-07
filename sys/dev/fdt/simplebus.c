@@ -187,7 +187,12 @@ simplebus_attach_impl(device_t dev)
 	simplebus_init(dev, 0);
 	if ((sc->flags & SB_FLAG_NO_RANGES) == 0 &&
 	    simplebus_fill_ranges(sc->node, sc) < 0) {
-		device_printf(dev, "could not get ranges\n");
+		device_printf(dev, "could not get 'ranges'\n");
+		return (ENXIO);
+	}
+
+	if (simplebus_fill_dma_ranges(sc->node, sc) < 0) {
+		device_printf(dev, "could not get 'dma-ranges'\n");
 		return (ENXIO);
 	}
 
@@ -252,53 +257,102 @@ simplebus_init(device_t dev, phandle_t node)
 	OF_getencprop(node, "#size-cells", &sc->scells, sizeof(sc->scells));
 }
 
-int
-simplebus_fill_ranges(phandle_t node, struct simplebus_softc *sc)
+static int
+simplebus_fill_ranges_impl(struct simplebus_softc *sc, char *prop_name,
+    phandle_t node, struct simplebus_range **ranges)
 {
 	int host_address_cells;
 	cell_t *base_ranges;
 	ssize_t nbase_ranges;
-	int err;
+	int err, nranges;
 	int i, j, k;
+
+
+	*ranges = NULL;
 
 	err = OF_searchencprop(OF_parent(node), "#address-cells",
 	    &host_address_cells, sizeof(host_address_cells));
 	if (err <= 0)
 		return (-1);
 
-	nbase_ranges = OF_getproplen(node, "ranges");
+	nbase_ranges = OF_getproplen(node, prop_name);
 	if (nbase_ranges < 0)
 		return (-1);
-	sc->nranges = nbase_ranges / sizeof(cell_t) /
+
+	if  ((nbase_ranges * (sizeof(cell_t)) %
+	    (sc->acells + host_address_cells + sc->scells)) != 0) {
+		device_printf(sc->dev, "%s: Malformed '%s' property\n",
+		    __func__, prop_name);
+		return (-1);
+	}
+
+	nranges = nbase_ranges / sizeof(cell_t) /
 	    (sc->acells + host_address_cells + sc->scells);
-	if (sc->nranges == 0)
+	if (nranges == 0)
 		return (0);
 
-	sc->ranges = malloc(sc->nranges * sizeof(sc->ranges[0]),
+	*ranges = malloc(nranges * sizeof((*ranges)[0]),
 	    M_DEVBUF, M_WAITOK);
 	base_ranges = malloc(nbase_ranges, M_DEVBUF, M_WAITOK);
-	OF_getencprop(node, "ranges", base_ranges, nbase_ranges);
+	OF_getencprop(node, prop_name, base_ranges, nbase_ranges);
 
-	for (i = 0, j = 0; i < sc->nranges; i++) {
-		sc->ranges[i].bus = 0;
+	for (i = 0, j = 0; i < nranges; i++) {
+		(*ranges)[i].bus = 0;
 		for (k = 0; k < sc->acells; k++) {
-			sc->ranges[i].bus <<= 32;
-			sc->ranges[i].bus |= base_ranges[j++];
+			(*ranges)[i].bus <<= 32;
+			(*ranges)[i].bus |= base_ranges[j++];
 		}
-		sc->ranges[i].host = 0;
+		(*ranges)[i].host = 0;
 		for (k = 0; k < host_address_cells; k++) {
-			sc->ranges[i].host <<= 32;
-			sc->ranges[i].host |= base_ranges[j++];
+			(*ranges)[i].host <<= 32;
+			(*ranges)[i].host |= base_ranges[j++];
 		}
-		sc->ranges[i].size = 0;
+		(*ranges)[i].size = 0;
 		for (k = 0; k < sc->scells; k++) {
-			sc->ranges[i].size <<= 32;
-			sc->ranges[i].size |= base_ranges[j++];
+			(*ranges)[i].size <<= 32;
+			(*ranges)[i].size |= base_ranges[j++];
 		}
 	}
 
 	free(base_ranges, M_DEVBUF);
-	return (sc->nranges);
+	return (nranges);
+}
+
+
+int
+simplebus_fill_ranges(phandle_t node, struct simplebus_softc *sc)
+{
+	int rv;
+
+	sc->ranges = NULL;
+	sc->nranges = 0;
+
+	if (!OF_hasprop(node, "ranges"))
+		return (-1);
+
+	rv = simplebus_fill_ranges_impl(sc, "ranges", node, &sc->ranges);
+	if (rv < 0)
+		return (rv);
+	sc->nranges = rv;
+	return (0);
+}
+
+int
+simplebus_fill_dma_ranges(phandle_t node, struct simplebus_softc *sc)
+{
+	int rv;
+
+	sc->dma_ranges = NULL;
+	sc->dma_nranges = 0;
+
+	if (!OF_hasprop(node, "dma-ranges"))
+		return (0);
+
+	rv = simplebus_fill_ranges_impl(sc, "dma-ranges", node, &sc->dma_ranges);
+	if (rv < 0)
+		return (rv);
+	sc->dma_nranges = rv;
+	return (0);
 }
 
 struct simplebus_devinfo *
