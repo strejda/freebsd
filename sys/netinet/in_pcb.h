@@ -624,15 +624,15 @@ typedef	enum {
 
 #define	INP_CHECK_SOCKAF(so, af)	(INP_SOCKAF(so) == af)
 
-VNET_DECLARE(int, ipport_reservedhigh);
-VNET_DECLARE(int, ipport_reservedlow);
-VNET_DECLARE(int, ipport_lowfirstauto);
-VNET_DECLARE(int, ipport_lowlastauto);
-VNET_DECLARE(int, ipport_firstauto);
-VNET_DECLARE(int, ipport_lastauto);
-VNET_DECLARE(int, ipport_hifirstauto);
-VNET_DECLARE(int, ipport_hilastauto);
-VNET_DECLARE(int, ipport_randomized);
+VNET_DECLARE(u_int, ipport_reservedhigh);
+VNET_DECLARE(u_int, ipport_reservedlow);
+VNET_DECLARE(u_int, ipport_lowfirstauto);
+VNET_DECLARE(u_int, ipport_lowlastauto);
+VNET_DECLARE(u_int, ipport_firstauto);
+VNET_DECLARE(u_int, ipport_lastauto);
+VNET_DECLARE(u_int, ipport_hifirstauto);
+VNET_DECLARE(u_int, ipport_hilastauto);
+VNET_DECLARE(bool, ipport_randomized);
 
 #define	V_ipport_reservedhigh	VNET(ipport_reservedhigh)
 #define	V_ipport_reservedlow	VNET(ipport_reservedlow)
