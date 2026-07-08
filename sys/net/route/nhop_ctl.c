@@ -90,6 +90,8 @@ static void fill_sdl_from_ifp(struct sockaddr_dl_short *sdl, const struct ifnet 
 
 static void destroy_nhop_epoch(epoch_context_t ctx);
 static void destroy_nhop(struct nhop_object *nh);
+static void nhops_ifnet_event(void *arg, struct ifnet *ifp, int state);
+static void nhops_ifnet_link_event(void *arg, struct ifnet *ifp, int state);
 
 _Static_assert(__offsetof(struct nhop_object, nh_ifp) == 32,
     "nhop_object: wrong nh_ifp offset");
@@ -109,6 +111,10 @@ nhops_init(void)
 	nhops_zone = uma_zcreate("routing nhops",
 	    NHOP_OBJECT_ALIGNED_SIZE + NHOP_PRIV_ALIGNED_SIZE,
 	    NULL, NULL, NULL, NULL, UMA_ALIGN_PTR, 0);
+	EVENTHANDLER_REGISTER(ifnet_event, nhops_ifnet_event, NULL,
+	    EVENTHANDLER_PRI_ANY);
+	EVENTHANDLER_REGISTER(ifnet_link_event, nhops_ifnet_link_event, NULL,
+	    EVENTHANDLER_PRI_ANY);
 }
 
 /*
@@ -1109,7 +1115,10 @@ nhops_iter_start(struct nhop_iter *iter)
 	if (iter->rh != NULL) {
 		struct nh_control *ctl = iter->rh->nh_control;
 
-		NHOPS_RLOCK(ctl);
+		if (iter->wlock)
+			NHOPS_WLOCK(ctl);
+		else
+			NHOPS_RLOCK(ctl);
 
 		iter->_i = 0;
 		iter->_next = CHT_FIRST(&ctl->nh_head, iter->_i);
@@ -1147,7 +1156,10 @@ nhops_iter_stop(struct nhop_iter *iter)
 	if (iter->rh != NULL) {
 		struct nh_control *ctl = iter->rh->nh_control;
 
-		NHOPS_RUNLOCK(ctl);
+		if (iter->wlock)
+			NHOPS_WUNLOCK(ctl);
+		else
+			NHOPS_RUNLOCK(ctl);
 	}
 }
 
@@ -1316,4 +1328,56 @@ nhops_dump_sysctl(struct rib_head *rh, struct sysctl_req *w)
 	NHOPS_RUNLOCK(ctl);
 
 	return (0);
+}
+
+static void
+nhops_ifnet_state_changed(struct ifnet *ifp, bool status)
+{
+	struct nhop_object *nh;
+	struct nhop_iter iter = { .fibnum = ifp->if_fib, .wlock = true };
+
+	for (iter.family = 1; iter.family <= AF_MAX; iter.family++) {
+		iter.rh = rt_tables_get_rnh_safe(iter.fibnum, iter.family);
+		for (nh = nhops_iter_start(&iter); nh != NULL;
+		    nh = nhops_iter_next(&iter)) {
+			if (nh->nh_ifp != ifp)
+				continue;
+
+			if (status)
+				nh->nh_flags &= ~NHF_INVALID;
+			else
+				nh->nh_flags |= NHF_INVALID;
+		}
+		nhops_iter_stop(&iter);
+	}
+}
+
+static void
+nhops_ifnet_event(void *arg __unused, struct ifnet *ifp, int state)
+{
+
+	if ((ifp->if_flags & IFF_DYING) != 0 ||
+	    (state != IFNET_EVENT_UP && state != IFNET_EVENT_DOWN))
+		return;
+
+	nhops_ifnet_state_changed(ifp, state == IFNET_EVENT_UP);
+}
+
+static void
+nhops_ifnet_link_event(void *arg __unused, struct ifnet *ifp, int state)
+{
+#ifdef VIMAGE
+	/*
+	 * rib_head will be calculated from V_tables in rt_tables_get_rnh
+	 * and the VNET is destroyed.
+	 */
+	if (VNET_IS_SHUTTING_DOWN(ifp->if_vnet))
+		return;
+#endif
+
+	if ((ifp->if_flags & IFF_DYING) != 0 ||
+	    (state != LINK_STATE_UP && state != LINK_STATE_DOWN))
+		return;
+
+	nhops_ifnet_state_changed(ifp, state == LINK_STATE_UP);
 }

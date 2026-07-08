@@ -145,14 +145,8 @@ struct nhop_object {
 
 /*
  * Nhop validness.
- *
- * Currently we verify whether link is up or not on every packet, which can be
- *   quite costy.
- * TODO: subscribe for the interface notifications and update the nexthops
- *  with NHF_INVALID flag.
  */
-
-#define	NH_IS_VALID(_nh)	RT_LINK_IS_UP((_nh)->nh_ifp)
+#define	NH_IS_VALID(_nh)	(!((_nh)->nh_flags & NHF_INVALID))
 #define	NH_IS_NHGRP(_nh)	((_nh)->nh_flags & NHF_MULTIPATH)
 
 #define	NH_FREE(_nh) do {					\
