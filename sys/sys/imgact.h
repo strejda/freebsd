@@ -86,7 +86,7 @@ struct image_params {
 	struct ucred *newcred;		/* new credentials if changing */
 #define IMGACT_SHELL	0x1
 #define IMGACT_BINMISC	0x2
-#define IMGACT_INTERP_IGNORE 0x3
+#define IMGACT_INTERP_ELF 0x4		/* only used within the ELF activator */
 	unsigned char interpreted;	/* mask of interpreters that have run */
 	bool credential_setid;		/* true if becoming setid */
 	bool vmspace_destroyed;		/* we've blown away original vm space */

@@ -823,8 +823,8 @@ __elfN(load_interp_file)(struct thread *td, const char *file, u_long *addr,
 	imgp->td = td;
 	imgp->proc = td->td_proc;
 	imgp->attr = attr;
-	imgp->interpreted = IMGACT_INTERP_IGNORE; /* ignored by do_execve */
-	
+	imgp->interpreted = IMGACT_INTERP_ELF; /* ignored by do_execve */
+
 	NDINIT(nd, LOOKUP, ISOPEN | FOLLOW | LOCKSHARED | LOCKLEAF,
 	    UIO_SYSSPACE, file);
 	if ((error = namei(nd)) != 0) {
