@@ -53,6 +53,13 @@
 #define IIDC_ONE_SHOT		0x61C
 #define IIDC_MEM_SAVE_CH	0x620
 #define IIDC_CUR_MEM_CH		0x624
+#define IIDC_VMODE_ERR_STATUS	0x628
+
+/* Cur_V_Format / Cur_V_Mode / Cur_V_Frm_Rate register fields */
+#define IIDC_CUR_V_SHIFT	29		/* bits [0..2] */
+
+/* Vmode_Error_Status register */
+#define IIDC_VMODE_ERROR	(1 << 31)	/* bit [0]: mode error */
 
 /* Section 1.7 - Status and control register for features */
 #define IIDC_BRIGHTNESS		0x800

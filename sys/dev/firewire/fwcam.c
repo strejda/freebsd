@@ -406,6 +406,40 @@ fwcam_iso_start(struct fwcam_softc *sc)
 	sc->frame_ready = 0;
 	sc->frame_dropped = 0;
 
+	/* IIDC spec s3.1: set video mode registers before ISO enable */
+	err = fwcam_write_quadlet(sc, IIDC_CUR_V_FORMAT,
+	    (uint32_t)sc->cur_format << IIDC_CUR_V_SHIFT);
+	if (err) {
+		device_printf(sc->fd.dev,
+		    "failed to set CUR_V_FORMAT: %d\n", err);
+		goto fail;
+	}
+	err = fwcam_write_quadlet(sc, IIDC_CUR_V_MODE,
+	    (uint32_t)sc->cur_mode << IIDC_CUR_V_SHIFT);
+	if (err) {
+		device_printf(sc->fd.dev,
+		    "failed to set CUR_V_MODE: %d\n", err);
+		goto fail;
+	}
+	err = fwcam_write_quadlet(sc, IIDC_CUR_V_FRM_RATE,
+	    (uint32_t)sc->cur_framerate << IIDC_CUR_V_SHIFT);
+	if (err) {
+		device_printf(sc->fd.dev,
+		    "failed to set CUR_V_FRM_RATE: %d\n", err);
+		goto fail;
+	}
+
+	/* Check Vmode_Error_Status - camera rejects ISO_EN on error */
+	err = fwcam_read_quadlet(sc, IIDC_VMODE_ERR_STATUS, &val);
+	if (err == 0 && (val & IIDC_VMODE_ERROR)) {
+		device_printf(sc->fd.dev,
+		    "Vmode_Error_Status set: format=%d mode=%d rate=%d "
+		    "speed=%d\n", sc->cur_format, sc->cur_mode,
+		    sc->cur_framerate, sc->iso_speed);
+		err = EINVAL;
+		goto fail;
+	}
+
 	val = ((uint32_t)sc->iso_channel << IIDC_ISO_CH_SHIFT) |
 	    ((uint32_t)sc->iso_speed << IIDC_ISO_SPEED_SHIFT);
 	err = fwcam_write_quadlet(sc, IIDC_ISO_CHANNEL, val);
@@ -863,13 +897,13 @@ fwcam_cdev_ioctl(struct cdev *dev, u_long cmd, caddr_t data,
 		FWCAM_UNLOCK(sc);
 
 		err = fwcam_write_quadlet(sc, IIDC_CUR_V_FORMAT,
-		    (uint32_t)mode->format << 29);
+		    (uint32_t)mode->format << IIDC_CUR_V_SHIFT);
 		if (err == 0)
 			err = fwcam_write_quadlet(sc, IIDC_CUR_V_MODE,
-			    (uint32_t)mode->mode << 29);
+			    (uint32_t)mode->mode << IIDC_CUR_V_SHIFT);
 		if (err == 0)
 			err = fwcam_write_quadlet(sc, IIDC_CUR_V_FRM_RATE,
-			    (uint32_t)mode->framerate << 29);
+			    (uint32_t)mode->framerate << IIDC_CUR_V_SHIFT);
 
 		if (err == 0) {
 			sc->cur_format = mode->format;
