@@ -149,27 +149,6 @@ fwcam_write_quadlet(struct fwcam_softc *sc, uint32_t offset, uint32_t val)
 	return (err);
 }
 
-#if 0
-static const char *
-fwcam_format_name(int format)
-{
-	static const char *names[] = {
-		"VGA (Format_0)",
-		"Super VGA 1 (Format_1)",
-		"Super VGA 2 (Format_2)",
-		"Reserved",
-		"Reserved",
-		"Reserved",
-		"Still Image (Format_6)",
-		"Partial Image (Format_7)",
-	};
-
-	if (format >= 0 && format <= 7)
-		return (names[format]);
-	return ("Unknown");
-}
-#endif
-
 static int
 fwcam_read_capabilities(struct fwcam_softc *sc)
 {
