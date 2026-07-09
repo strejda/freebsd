@@ -731,7 +731,7 @@ static int addr_resolve(struct sockaddr *src_in,
 	NET_EPOCH_ENTER(et);
 	if (resolve_by_gid_attr) {
 		if (!addr->sgid_attr) {
-			NET_EPOCH_ENTER(et);
+			NET_EPOCH_EXIT(et);
 			pr_warn_ratelimited("%s: missing gid_attr\n", __func__);
 			return -EINVAL;
 		}
@@ -742,7 +742,7 @@ static int addr_resolve(struct sockaddr *src_in,
 		 */
 		ret = set_addr_netns_by_gid_rcu(addr);
 		if (ret) {
-			NET_EPOCH_ENTER(et);
+			NET_EPOCH_EXIT(et);
 			return ret;
 		}
 	}
