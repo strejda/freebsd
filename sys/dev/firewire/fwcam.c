@@ -288,7 +288,7 @@ fwcam_probe_task(void *arg, int pending __unused)
 		sc->state = FWCAM_STATE_PROBED;
 		FWCAM_UNLOCK(sc);
 
-		if (sc->open_count > 0 &&
+		if (sc->dma_ch >= 0 &&
 		    sc->state != FWCAM_STATE_DETACHING)
 			fwcam_iso_start(sc);
 	}
@@ -601,7 +601,6 @@ static int
 fwcam_cdev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
 	struct fwcam_softc *sc = dev->si_drv1;
-	int err = 0;
 
 	FWCAM_LOCK(sc);
 	if (sc->state == FWCAM_STATE_DETACHING) {
@@ -615,18 +614,8 @@ fwcam_cdev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	}
 
 	sc->open_count++;
-	if (sc->open_count == 1 && sc->state == FWCAM_STATE_PROBED) {
-		FWCAM_UNLOCK(sc);
-		err = fwcam_iso_start(sc);
-		if (err) {
-			FWCAM_LOCK(sc);
-			sc->open_count--;
-			FWCAM_UNLOCK(sc);
-		}
-	} else {
-		FWCAM_UNLOCK(sc);
-	}
-	return (err);
+	FWCAM_UNLOCK(sc);
+	return (0);
 }
 
 static int
@@ -657,6 +646,13 @@ fwcam_cdev_read(struct cdev *dev, struct uio *uio, int ioflag)
 	int err;
 
 	FWCAM_LOCK(sc);
+	if (sc->state == FWCAM_STATE_PROBED) {
+		FWCAM_UNLOCK(sc);
+		err = fwcam_iso_start(sc);
+		if (err)
+			return (err);
+		FWCAM_LOCK(sc);
+	}
 	while (!sc->frame_ready) {
 		if (sc->state != FWCAM_STATE_STREAMING) {
 			FWCAM_UNLOCK(sc);
