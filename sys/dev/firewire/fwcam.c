@@ -429,7 +429,22 @@ fwcam_iso_start(struct fwcam_softc *sc)
 	}
 
 	err = fwcam_write_quadlet(sc, IIDC_ISO_EN, IIDC_ISO_EN_ON);
-	if (err) {
+	if (err == EIO) {
+		/*
+		 * Cameras with a lens cover might power down the sensor
+		 * when the cover is closed and reject streaming requests.
+		 * Try to re-power and retry once before giving up.
+		 */
+		err = fwcam_power_on(sc);
+		if (err == 0)
+			err = fwcam_write_quadlet(sc, IIDC_ISO_EN,
+			    IIDC_ISO_EN_ON);
+		if (err) {
+			device_printf(sc->fd.dev,
+			    "ISO enable refused (lens cover closed?)\n");
+			goto fail;
+		}
+	} else if (err) {
 		device_printf(sc->fd.dev,
 		    "failed to enable ISO: %d\n", err);
 		goto fail;
