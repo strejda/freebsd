@@ -179,6 +179,7 @@ MAN=	aac.4 \
 	filemon.4 \
 	firewire.4 \
 	fwcam.4 \
+	fwisound.4 \
 	${_ftgpio.4} \
 	${_ftwd.4} \
 	full.4 \

@@ -1733,6 +1733,8 @@ dev/firewire/fwcrom.c		optional firewire
 dev/firewire/fwdev.c		optional firewire
 dev/firewire/fwcam.c		optional fwcam
 dev/firewire/fwdma.c		optional firewire
+dev/firewire/fwisound.c		optional fwisound sound
+dev/firewire/fwisound_pcm.c	optional fwisound sound
 dev/firewire/fwmem.c		optional firewire
 dev/firewire/fwohci.c		optional firewire
 dev/firewire/fwohci_pci.c	optional firewire pci
