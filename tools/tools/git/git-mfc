@@ -78,6 +78,25 @@ def fixes(repo, commit, warn=False):
     valid but malformed somehow.
     """
     special = {
+        "956100d60fa86daebc1bd46ea62f207f6b54d93d": ["1bdf1b8186359d4ea26e26de03e03b7c1543b707"],
+        "013c58ced6aef26bad7ca5c6eb829b9d586f6edb": ["2fefe2c88b31dc7f173c9424f3eb13d49e98d55a"],
+        "63c9b018069b58bacb2875c83c676cc8c4f40d69": ["2fefe2c88b31dc7f173c9424f3eb13d49e98d55a"],
+        "27c41b28b1d7749c4dde266a12cd9ff93f168767": ["2ad0f7e91582dde5475ceb1a1942930549e5c628"],
+        "56c45700f2ae15755358f2da8266247613c564df": ["b1c38df05d79c81ee1e9fd0942774820a4ffcb63"],
+        "1580f8d9c1740e0c54554e6c185573d34f2dcf76": [],
+        "a18be39aafc1b55fd67603ee6a6d820d0fcd877f": ["518cdd344ec51584478f39b9a9cac77fc0766ce1"],
+        "337f5e7a44c4d5ac29e0b0c0fe957bb3b9bae222": ["518cdd344ec51584478f39b9a9cac77fc0766ce1"],
+        "be8e84c2e9240110ce99bb8d14259073340e4ef6": ["de78657a3aef3c2efbcbdf9ea73a95283c91fab0"],
+        "9b56dfd27c64fcaf2dfbaa1eb3e2bd2b163fa56c": [],
+        "5fea0aec5c8e7e8e68a3f0de6ae717588344a6b4": ["deaae83da0571af7c97acf8f1444a00350e21e3a"],
+        "93bc3d83a11a1dbebd264616d63af3dd32cc1c8c": ["06410c1b51637e5e1f392d553b5008948af58014"],
+        "1a9ec72022ddce0cacb9aedda3d69aa95cd45ed0": ["f9a71840d8ee0cfff4ec983a589be53648e7017d"],
+        "b033e3684fd14c798405420449eb55e1d4f9df1e": ["f42421307b115345ea1a6c8fdf61fbb581e4400f"],
+        "2a5b083c1f7e0a4518bd944241af1d1102997c4d": ["58580dc0c694b107ba7ba1b14dc8ee8f306e53f6"],
+        "cbb7441245cf2b22efed17dec3c88587c980c691": ["05322eec86ae42a8f873ba10d8da61bd61b5b48f"],
+        "7e68af7ce2c1b892954df415774fe59fd2f1b62f": [],
+        "2612f1b8649bb4f069a6a064ed714daa5f10d037": [],
+        "43d632779b7d1df6c96a5cc0f506c13e09a845f3": ["2358492b0347b11178fb594069330820f11ec81f"],
         "a693d17b9985a03bd9b5108e890d669005ab41eb": ["8a42005d1e491932666eb9f0be3e70ea1a28a3f7"],
         "a04ca1c229195c7089b878a94fbe76505ea693b5": ["93b7818226cf5270646725805b4a8c17a1ad3761"],
         "852088f6af6c5cd44542dde72aa5c3f4c4f9353c": ["b5fb9ae6872c499f1a02bec41f48b163a73a2aaa"],
@@ -221,6 +240,11 @@ def mfc_origins(repo, commit, warn=False):
         "5946b0c6cbc77e6c5f62f5f7e635c6036e14f4d0": [],
         "06bb8e1dab004ccb283f7a20fe84aa1326baf6b7": [],
         "e5fadc41b48045d8978993d6c4ac72c64542b470": ["e20971500194d2f7299e9d01ca3b20e9bc6b4009"],
+        "3ba946aebf747e12da4fb22ee0e45ee0e3a233ee": ["c4380d5b9383e2a062840573b36ab643b65b2610"],
+        "3a84c630f2361763f8cd1390847677dfe8fb0b01": ["841be1d0495224a47d3dbfd8647c7fcbf58b205c"],
+        "827fd20d07a46879c66bb6899ad1d780845b1b6c": ["83fa80a5500ed7baccedfa90ad55ac879af710c9"],
+        "be72364ad64ac3c350cbd47130794db254fc77b0": ["b1ccab17213b38aa269e85c6b371d69eb25b6ca9"],
+        "4fc0ae5d6b459156317acc070acbbdc53cda1d6e": ["7359df79d3affeccf17f12f16c23ba3d4c5e0346"],
         # stable/13
         "fb4bc4c325eca15247a2e21ded0a70f92ec15488": ["c57c02ebf7bcc9b02a0dc11711e8d8a6960ad34b"],
         "213406054e46b50d5df6d28b01a0a3410132b322": ["62af5b9dc6205289a0ace964d060fba64e71ef28"],
@@ -233,6 +257,7 @@ def mfc_origins(repo, commit, warn=False):
         "a75324d674f5df10f1407080a49cfe933dbb06ec": ["64ae2f785e0672286901c15045a24cbc533538d3"],
         "0729ba2f49c956789701aecb70f4f555181fd3a7": ["91a8bed5a49eb2d1e4e096a4c68c108cebec8818"],
         "bec0d2c9c8413707b0fff8e65fb96aa53f149be3": ["8d5c7813061dfa0b187500dfe3aeea7a28181c13"],
+        "66b1d696db1284ac9f9bb4037ffc288091f5ba84": ["f9a039060e834e89e0b2de1e8a442d78bd5c083d"],
     }
     if commit.hexsha in special:
         return [repo.commit(s) for s in special[commit.hexsha]]
