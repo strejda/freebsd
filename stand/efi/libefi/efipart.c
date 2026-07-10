@@ -1292,7 +1292,7 @@ efiblk_memdisk_preload(void)
 		snprintf(value, sizeof(value), "0x%016x", start);
 		setenv(key, value, 1);
 		snprintf(key, sizeof(key), "hint.md.%d.len", i);
-		snprintf(value, sizeof(value), "0x%016x", end - start);
+		snprintf(value, sizeof(value), "%d", end - start + 1);
 		setenv(key, value, 1);
 	}
 }
