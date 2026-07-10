@@ -31,6 +31,11 @@ def commit_summary(commit):
     return f'{commit.hexsha} ("{commit.summary}")'
 
 
+def commit_match(commit, author, committer):
+    return (author is None or author in commit.author.email) and \
+           (committer is None or committer in commit.committer.email)
+
+
 def origin_branch():
     """
     Determine the default origin branch by parsing sys/conf/newvers.sh.
@@ -245,7 +250,7 @@ def mfc_origins(repo, commit, warn=False):
     return origins
 
 
-def dangling(repo, upstream, author=None):
+def dangling(repo, upstream, author=None, committer=None):
     """
     Find commits in the current branch which have been cherry-picked from
     upstream but are missing fixup commits.
@@ -258,7 +263,7 @@ def dangling(repo, upstream, author=None):
         refs = mfc_origins(repo, commit, warn=True)
         for ref in refs:
             picked.append(ref.hexsha)
-            if author is None or author in commit.author.email:
+            if commit_match(ref, author, committer):
                 mine.append(ref.hexsha)
     # Create a mapping of all upstream commits to their fixups,
     # tracking reverts as we go.
@@ -301,7 +306,7 @@ def mfc_after(commit):
     return None
 
 
-def pending(repo, upstream, author=None, baking=False):
+def pending(repo, upstream, author=None, committer=None, baking=False):
     """
     Find commits in the upstream branch that have an "MFC after:" tag, whose
     waiting period has elapsed, and which have not been cherry-picked to the
@@ -339,8 +344,7 @@ def pending(repo, upstream, author=None, baking=False):
             # Not yet eligible for MFC.
             continue
 
-        if author is not None and author not in commit.author.email:
-            # Don't report commits that don't match the requested author.
+        if not commit_match(commit, author, committer):
             continue
 
         committed = datetime.datetime.fromtimestamp(
@@ -388,7 +392,7 @@ def main():
     )
     parser.add_argument(
         '-a', '--author', type=str, default=None,
-        help='Filter --pending/--dangling results by author (default: current user)',
+        help='Filter --pending/--dangling results by author (default: ignore author)',
     )
     parser.add_argument(
         '--all', action='store_true',
@@ -398,6 +402,10 @@ def main():
         '--baking', action='store_true',
         help='With --pending, also show commits whose MFC-after period '
              'has not yet elapsed',
+    )
+    parser.add_argument(
+        '-c', '--committer', type=str, default=None,
+        help='Filter --pending/--dangling results by committer (default: current user)',
     )
     parser.add_argument(
         '--dangling', action='store_true',
@@ -455,24 +463,27 @@ def main():
     if not args.n:
         repo.remotes[remote].fetch(origin)
 
-    show_all = getattr(args, 'all')
-    if show_all:
-        author = None
-    elif args.author:
-        author = args.author
-    elif args.dangling or args.pending:
-        author = repo.config_reader().get_value('user', 'email', default=None)
-        if author is None:
-            err(1, "could not determine user email; use -a or --all")
-    else:
-        author = None
+    # Do we want to filter commits by author or committer?  By default, use
+    # the current git user's email to match the committer field.
+    author = committer = None
+    if not getattr(args, 'all'):
+        user_email = repo.config_reader().get_value('user', 'email', default=None)
+        if args.author:
+            author = args.author
+
+        if args.committer:
+            committer = args.committer
+        else:
+            committer = user_email
+            if committer is None:
+                err(1, "could not determine user email; use -c or --all")
 
     if args.dangling:
-        missing = dangling(repo, upstream, author=author)
+        missing = dangling(repo, upstream, author=author, committer=committer)
         for fixup, commit in missing:
             print(f'{commit_summary(fixup)} fixes {commit_summary(commit)}')
     elif args.pending:
-        results = pending(repo, upstream, author=author,
+        results = pending(repo, upstream, author=author, committer=committer,
                           baking=args.baking)
         for commit, ready_date, ready in results:
             date_str = ready_date.strftime('%Y-%m-%d')

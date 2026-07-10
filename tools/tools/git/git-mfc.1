@@ -19,6 +19,7 @@
 .Nm
 .Fl -pending
 .Op Fl a Ar author
+.Op Fl c Ar committer
 .Op Fl -all
 .Op Fl -baking
 .Op Fl -origin Ar branch
@@ -26,6 +27,7 @@
 .Nm
 .Fl -dangling
 .Op Fl a Ar author
+.Op Fl c Ar committer
 .Op Fl -all
 .Op Fl -origin Ar branch
 .Op Fl r Ar remote
@@ -84,7 +86,7 @@ scans the origin branch for commits with
 tags whose waiting period has elapsed and which have not already been
 cherry-picked to the current branch.
 Commits that have been reverted upstream are excluded.
-By default, only commits authored by the current user
+By default, only commits committed by the current user
 .Pq as determined by Xr git-config 1
 are shown.
 .It
@@ -96,7 +98,7 @@ Instead,
 finds commits in the current branch that have been cherry-picked from the
 origin branch but are missing associated fixup commits.
 Fixup commits that have been reverted upstream are excluded.
-By default, only cherry-picks authored by the current user
+By default, only cherry-picks committed by the current user
 .Pq as determined by Xr git-config 1
 are considered.
 .El
@@ -109,6 +111,13 @@ With
 or
 .Fl -dangling ,
 filter results to commits whose author email contains the given string.
+By default, the author field of commits is ignored.
+.It Fl c Ar committer , Fl -committer Ar committer
+With
+.Fl -pending
+or
+.Fl -dangling ,
+filter results to commits whose committer email contains the given string.
 By default, the value of
 .Va user.email
 from
