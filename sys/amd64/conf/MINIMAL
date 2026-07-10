@@ -130,6 +130,7 @@ device		uart			# Generic UART driver
 # Pseudo devices.
 device		loop			# Network loopback
 device		ether			# Ethernet support
+device		md			# Memory "disks"
 
 # The `bpf' device enables the Berkeley Packet Filter.
 # Be aware of the administrative consequences of enabling this!
