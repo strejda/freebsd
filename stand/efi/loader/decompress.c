@@ -335,10 +335,14 @@ null_step(decomp_state *dctx, uint8_t *buf, size_t len, size_t offset)
 		printf("Too much data recieved!");
 		return (err);
 	}
+	if ((uintptr_t)dctx->buf_cur - (uintptr_t)dctx->buf != offset) {
+		printf("OH NO! The offset is %llu but I expected %llu\n", ULL(offset),
+		    ULL((uintptr_t)dctx->buf_cur - (uintptr_t)dctx->buf));
+		return (err);
+	}
 
-	CHAR8 *src = buf;
-	CHAR8 *dst = (void*)(uintptr_t)(dctx->buf + offset);
-	BS->CopyMem(dst, src, len);
+	memcpy(dctx->buf_cur, buf, len);
+	dctx->buf_cur += len;
 	return (end == dctx->size ? done : ok);
 }
 
