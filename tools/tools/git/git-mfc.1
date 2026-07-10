@@ -287,6 +287,20 @@ Use a different remote and origin branch:
 .Bd -literal -offset indent
 $ git mfc -r freebsd --origin main abc123
 .Ed
+.Sh FILES
+.Bl -tag -width "$HOME/.git-mfc-ignore"
+.It Pa $HOME/.git-mfc-ignore
+A list of commits to exclude from
+.Fl -pending
+and
+.Fl -dangling
+output.
+Each line contains a commit hash, optionally abbreviated, followed by
+arbitrary text which is ignored.
+Blank lines and lines beginning with
+.Ql #
+are skipped.
+.El
 .Sh SEE ALSO
 .Xr git-cherry-pick 1 ,
 .Xr git-config 1 ,

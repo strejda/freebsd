@@ -250,6 +250,31 @@ def mfc_origins(repo, commit, warn=False):
     return origins
 
 
+def load_ignore_list(repo):
+    """
+    Load commit hashes from $HOME/.git-mfc-ignore.  Each line has the format:
+        <commit-hash> [ignored text]
+    where the hash may be abbreviated.  Blank lines and lines starting with
+    '#' are skipped.  Each hash is resolved to a full commit to validate it.
+    """
+    path = os.path.join(os.environ['HOME'], '.git-mfc-ignore')
+    commits = set()
+    try:
+        with open(path) as f:
+            for lineno, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                abbrev = line.split()[0]
+                try:
+                    commits.add(repo.commit(abbrev).hexsha)
+                except (git.exc.BadName, ValueError):
+                    err(1, f"{path}:{lineno}: unknown commit {abbrev}")
+    except FileNotFoundError:
+        pass
+    return commits
+
+
 def dangling(repo, upstream, author=None, committer=None):
     """
     Find commits in the current branch which have been cherry-picked from
@@ -478,13 +503,19 @@ def main():
                 err(1, "could not determine user email; use -c or --all")
 
     if args.dangling:
+        ignored = load_ignore_list(repo)
         missing = dangling(repo, upstream, author=author, committer=committer)
         for fixup, commit in missing:
+            if fixup.hexsha in ignored:
+                continue
             print(f'{commit_summary(fixup)} fixes {commit_summary(commit)}')
     elif args.pending:
+        ignored = load_ignore_list(repo)
         results = pending(repo, upstream, author=author, committer=committer,
                           baking=args.baking)
         for commit, ready_date, ready in results:
+            if commit.hexsha in ignored:
+                continue
             date_str = ready_date.strftime('%Y-%m-%d')
             if ready:
                 status = f"ready since {date_str}"
