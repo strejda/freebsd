@@ -200,7 +200,7 @@ _RandomPort(struct libalias *la) {
 	port = la->aliasPortLower +
 	    arc4random_uniform(la->aliasPortLength);
 
-	return ntohs(port);
+	return htons(port);
 }
 
 /* GetNewPort() allocates port numbers.  Note that if a port number
