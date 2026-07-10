@@ -50,11 +50,15 @@ download_data(IN VOID *Context, IN VOID *Buffer, IN UINTN BufferLength, IN UINTN
 	dl_state *ctx = Context;
 	decomp_state *dctx = ctx->dctx;
 
+	if (FileOffset == 0 && BufferLength == 0) {
+		printf("Staritng the download\n");
+		return (EFI_SUCCESS);
+	}
+
 	/*
-	 * Make a note of the size when we're hinted about it. But once
-	 * we start the download, ignore the hints.
+	 * Make a note of the size when we're hinted about it.
 	 */
-	if (ctx->size == 0 && BufferLength == 0) {
+	if (BufferLength == 0) {
 		printf("We know we will download %llu bytes\n", ULL(FileOffset));
 		ctx->size = FileOffset;
 		ctx->status = EFI_SUCCESS;
