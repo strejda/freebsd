@@ -360,17 +360,16 @@ def pending(repo, upstream, author=None, committer=None, baking=False):
     return list(results.values())
 
 
-def cherry_pick(commit, edit=False):
-    """Cherry-pick a single commit with -x.  Abort on failure."""
+def cherry_pick(commits, edit=False):
+    """Cherry-pick a list of commits with -x.  Abort on failure."""
     cmd = ['git', 'cherry-pick', '-x', '-m1']
     if edit:
         cmd.append('-e')
-    cmd.append(commit.hexsha)
+    cmd.extend([c.hexsha for c in commits])
     result = subprocess.run(cmd, capture_output=False)
     if result.returncode != 0:
-        print(f"\nCherry-pick of {commit.hexsha} ({commit.summary}) failed.",
-              file=sys.stderr)
-        print("Resolve the conflict and then re-run git mfc to continue,",
+        print("\nCherry-pick failed.", file=sys.stderr)
+        print("Resolve the conflict and run 'git cherry-pick --continue',",
               file=sys.stderr)
         print("or run 'git cherry-pick --abort' to give up.", file=sys.stderr)
         sys.exit(1)
@@ -521,13 +520,16 @@ def main():
                 print(commit.hexsha, commit.summary)
             return
 
+        topick = []
         for commit in tomfc:
             if commit.hexsha in already_picked:
                 print(f"Skipping {commit.hexsha[:12]} {commit.summary} "
                       f"(already cherry-picked)")
                 continue
             print(f"Cherry-picking {commit.hexsha[:12]} {commit.summary}")
-            cherry_pick(commit, edit=args.edit)
+            topick.append(commit)
+        if topick:
+            cherry_pick(topick, edit=args.edit)
 
 
 if __name__ == '__main__':

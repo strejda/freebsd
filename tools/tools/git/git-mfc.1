@@ -68,13 +68,16 @@ Fixup commits that have been reverted are skipped with a warning.
 .Pp
 Commits that have already been cherry-picked to the current branch are
 automatically skipped.
-This allows the same
-.Nm
-command to be re-run after resolving a conflict without re-applying
-earlier commits.
 Use
 .Fl f
 to override this behavior.
+.Pp
+All commits are cherry-picked using a single
+.Xr git-cherry-pick 1
+invocation.
+If a conflict occurs, resolve it and run
+.Dq git cherry-pick --continue
+to proceed with the remaining commits.
 .It
 In
 .Fl -pending
