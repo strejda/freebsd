@@ -47,7 +47,7 @@ HAVE_ZFS=	yes
 
 CFLAGS.bootinfo.c += -I$(SRCTOP)/sys/teken
 CFLAGS.bootinfo.c += -I${SRCTOP}/contrib/pnglite
-CFLAGS.decompress.c += ${ZLIB_CFLAGS} ${BZIP2_CFLAGS} ${ZSTD_CFLAGS}
+CFLAGS.decompress.c += ${ZLIB_CFLAGS} ${BZIP2_CFLAGS} ${ZSTD_CFLAGS} ${XZ_CFLAGS}
 CFLAGS.framebuffer.c += -I$(SRCTOP)/sys/teken
 CFLAGS.framebuffer.c += -I${SRCTOP}/contrib/pnglite
 CFLAGS.main.c += -I$(SRCTOP)/sys/teken

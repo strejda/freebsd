@@ -6,7 +6,7 @@
 
 #pragma once
 
-enum compression { none, zlib, bzip2, zstd };
+enum compression { none, zlib, bzip2, xz, zstd };
 enum step_return { ok, done, err };
 
 typedef struct decomp_state decomp_state;

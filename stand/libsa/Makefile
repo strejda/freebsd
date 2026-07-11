@@ -110,6 +110,13 @@ SRCS+=	${i}
 SRCS+=	lz4.c
 CFLAGS.lz4.c+= -I${SRCTOP}/sys/cddl/contrib/opensolaris/common/lz4
 
+# xz decompression
+.PATH: ${XZ_DIR}/linux/lib/xz
+.for i in xz_crc32.c xz_crc64.c xz_dec_bcj.c xz_dec_lzma2.c xz_dec_stream.c xz.c
+CFLAGS.${i}+=${XZ_CFLAGS}
+SRCS+=	${i}
+.endfor
+
 # io routines
 SRCS+=	closeall.c dev.c ioctl.c nullfs.c stat.c mount.c \
 	fstat.c close.c lseek.c open.c read.c write.c readdir.c preload.c

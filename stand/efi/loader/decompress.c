@@ -11,7 +11,8 @@
 
 #include <zlib.h>
 #include <bzlib.h>
-#ifdef LOADER_ZFS_SUPPORT	/* ZSTD only available with ZFS */
+#include <xz.h>
+#ifdef LOADER_ZFS_SUPPORT	/* ZSTD and lzma only available with ZFS */
 #include <zstd.h>
 #endif
 #include <sys/_param.h>
@@ -32,6 +33,7 @@ struct decomp_state
 	union {
 		z_stream zstrm;
 		bz_stream bzstrm;
+		struct xz_dec *xzstrm;
 #ifdef LOADER_ZFS_SUPPORT
 		ZSTD_DStream *zstdstrm;
 #endif
@@ -63,10 +65,10 @@ what_compressed(uint8_t *buf, size_t len)
 		return (zstd);
 	}
 	if (memcmp(buf, "\xfd""7zXZ\x00", 6) == 0) {
-		printf("xz -- unsupproted\n");
-	} else {
-		printf("Not compressed\n");
+		printf("xz\n");
+		return (xz);
 	}
+	printf("Not compressed\n");
 	return (none);
 }
 
@@ -220,7 +222,7 @@ bzip2_step(decomp_state *dctx, uint8_t *buf, size_t len, size_t offset)
 
         if (ret == BZ_STREAM_END)
                 return (done);
-        if (ret != Z_OK)
+        if (ret != BZ_OK)
                 return (err);
         if (dctx->buf_cur < dctx->buf_end) /* Have output space */
 		return (ok);
@@ -242,6 +244,90 @@ static void
 bzip2_fini(decomp_state *dctx, bool flush)
 {
 	BZ2_bzDecompressEnd(&dctx->bzstrm);
+	if (!flush)
+		return;
+	free_buffer(dctx);
+}
+
+/*
+ * XZ support
+ */
+static EFI_STATUS
+xz_init(decomp_state *dctx, uint8_t *first_buf, size_t buflen, size_t size_hint)
+{
+	/*
+	 * Assume 4x compression, but start at 64MB
+	 */
+	dctx->size = max(size_hint * 4, M(64));
+	EFI_STATUS status = alloc_buffer(dctx, dctx->size);
+	if (EFI_ERROR(status))
+		return (status);
+	xz_crc32_init();
+	xz_crc64_init();
+	dctx->xzstrm = xz_dec_init(XZ_DYNALLOC, (uint32_t)-1);
+        return (dctx->xzstrm != NULL ? EFI_SUCCESS : EFI_VOLUME_CORRUPTED);	
+}
+
+
+static enum step_return
+xz_step(decomp_state *dctx, uint8_t *buf, size_t len, size_t offset)
+{
+	struct xz_dec *strm = dctx->xzstrm;
+	size_t outlen = dctx->buf_end - dctx->buf_cur;
+	struct xz_buf b = { .in = buf, .in_size = len, .in_pos = 0,
+		.out = dctx->buf_cur, .out_size = outlen, .out_pos = 0 };
+	int ret;
+	
+        ret = xz_dec_run(strm, &b);
+	dctx->buf_cur += b.out_pos;
+
+        if (ret == XZ_STREAM_END)
+                return (done);
+        if (ret != XZ_OK) {
+		switch(ret) {
+		case XZ_MEM_ERROR:
+			printf("xz no memory ");
+			break;
+		case XZ_DATA_ERROR:
+			printf("xz file corrupted ");
+			break;
+		case XZ_FORMAT_ERROR:
+			printf("xz format not found ");
+			break;
+		case XZ_OPTIONS_ERROR:
+			printf("unsupported xz option ");
+			break;
+		case XZ_MEMLIMIT_ERROR:
+			printf("xz dictionary too small ");
+			break;
+		default:
+			printf("xz step error %d ", ret);
+			break;
+		}
+		printf(" len %d offset %d\n", (int)len, (int)offset);
+                return (err);
+	}
+        if (dctx->buf_cur < dctx->buf_end) /* Have output space */
+		return (ok);
+
+	/*
+	 * We're out of space, grow the buffer and try again if there's buffer
+	 * space. We try again recursively since we know that will usually go
+	 * only 1 deep.
+	 */
+	if (EFI_ERROR(grow_buffer(dctx)))
+		return (err);
+	if (b.in_pos == b.in_size)
+		return (ok);
+	size_t consumed = b.in_pos;
+	return (xz_step(dctx, buf + consumed, len - consumed, offset + consumed));
+}
+
+static void
+xz_fini(decomp_state *dctx, bool flush)
+{
+	xz_dec_end(dctx->xzstrm);
+	dctx->xzstrm = NULL;
 	if (!flush)
 		return;
 	free_buffer(dctx);
@@ -372,6 +458,11 @@ decomp_init(uint8_t *buf, size_t buflen, size_t size_hint)
 		dctx->init = bzip2_init;
 		dctx->step = bzip2_step;
 		dctx->fini = bzip2_fini;
+		break;
+	case xz:
+		dctx->init = xz_init;
+		dctx->step = xz_step;
+		dctx->fini = xz_fini;
 		break;
 #ifdef LOADER_ZFS_SUPPORT
 	case zstd:

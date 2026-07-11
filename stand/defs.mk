@@ -190,6 +190,11 @@ BZIP2_CFLAGS=-I${SRCTOP}/contrib/bzip2  -DBZ_NO_STDIO -DBZ_NO_COMPRESS
 # ZSTD client cflags
 ZSTD_CFLAGS=-I${SYSDIR}/contrib/zstd/lib
 
+# XZ flags
+XZ_DIR=${SRCTOP}/sys/contrib/xz-embedded
+XZ_CFLAGS=-DXZ_USE_CRC64 -I${XZ_DIR}/freebsd -I${XZ_DIR}/linux/include/linux
+
+
 # The boot loader build uses dd status=none, where possible, for reproducible
 # build output (since performance varies from run to run). Trouble is that
 # option was recently (10.3) added to FreeBSD and is non-standard. Only use it
