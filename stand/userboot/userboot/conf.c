@@ -70,6 +70,7 @@ struct fs_ops *file_system[] = {
 #endif
 	&gzipfs_fsops,
 	&bzipfs_fsops,
+	&xzfs_fsops,
 	NULL
 };
 

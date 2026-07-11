@@ -142,7 +142,7 @@ SRCS+=	arp.c ether.c ip.c inet_ntoa.c in_cksum.c net.c udp.c netif.c rpc.c
 SRCS+=	bootp.c rarp.c bootparam.c
 
 # boot filesystems
-SRCS+=	ufs.c nfs.c cd9660.c tftp.c gzipfs.c bzipfs.c
+SRCS+=	ufs.c nfs.c cd9660.c tftp.c gzipfs.c bzipfs.c xzfs.c
 SRCS+=	dosfs.c ext2fs.c
 SRCS+=	splitfs.c
 SRCS+=	pkgfs.c
@@ -168,6 +168,7 @@ CFLAGS.ffs_subr.c+= -DSTANDALONE_SMALL
 CFLAGS.gzipfs.c+= ${ZLIB_CFLAGS}
 CFLAGS.pkgfs.c+= ${ZLIB_CFLAGS}
 CFLAGS.bzipfs.c+= ${BZIP2_CFLAGS}
+CFLAGS.xzfs.c+= ${XZ_CFLAGS}
 
 # explicit_bzero and calculate_crc32c
 .PATH: ${SYSDIR}/libkern
