@@ -192,6 +192,12 @@ SRCS+=	g_eli_hmac.c pkcs5v2.c
 # Maybe ZFS
 .if ${MK_LOADER_ZFS} == "yes"
 .include "${SASRC}/zfs/Makefile.inc"
+
+# zstdfs.c is a stacked filesystem for .zst files, like gzipfs.c/bzipfs.c
+# above; it's only buildable here because zfs/Makefile.inc already pulled
+# the zstd decompressor in for ZFS's on-disk compression.
+SRCS+=	zstdfs.c
+CFLAGS.zstdfs.c+= ${ZSTD_CFLAGS}
 .endif
 
 # Crypto hashing functions
