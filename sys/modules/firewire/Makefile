@@ -1,5 +1,6 @@
 SUBDIR=	firewire \
 	fwcam \
+	fwdv \
 	fwe \
 	fwip \
 	fwisound \

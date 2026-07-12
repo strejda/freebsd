@@ -2615,6 +2615,7 @@ device		sbp_targ	# SBP-2 Target mode  (Requires scbus and targ)
 device		fwe		# Ethernet over FireWire (non-standard!)
 device		fwip		# IP over FireWire (RFC2734 and RFC3146)
 device		fwcam		# IIDC digital cameras over FireWire
+device		fwdv		# AV/C DV capture over FireWire
 device		fwisound	# Apple FireWire audio
 
 #####################################################################
