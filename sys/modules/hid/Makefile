@@ -11,6 +11,7 @@ SUBDIR += \
 	hconf \
 	hcons \
 	hgame \
+	hidwacom \
 	hkbd \
 	hms \
 	hmt \

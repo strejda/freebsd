@@ -213,6 +213,7 @@ MAN=	aac.4 \
 	hidbus.4 \
 	hidquirk.4 \
 	hidraw.4 \
+	hidwacom.4 \
 	hkbd.4 \
 	hms.4 \
 	hmt.4 \
