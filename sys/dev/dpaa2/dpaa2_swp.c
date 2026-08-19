@@ -762,7 +762,7 @@ dpaa2_swp_pull(struct dpaa2_swp *swp, uint16_t chan_id, struct dpaa2_buf *buf,
 	}
 
 	/* Let's sync before reading VDQ response from QBMan. */
-	bus_dmamap_sync(buf->dmat, buf->dmap, BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(buf->dmat, buf->dmap, BUS_DMASYNC_SYNCREAD);
 
 	/* Read VDQ response from QBMan. */
 	msg = (struct dpaa2_dq *)buf->vaddr;

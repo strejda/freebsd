@@ -183,7 +183,7 @@ simplebus_attach_impl(device_t dev)
 	struct		simplebus_softc *sc;
 	phandle_t	node;
 
-	sc = device_get_softc(dev);
+	sc = device_get_softc_class(dev, &simplebus_driver);
 	simplebus_init(dev, 0);
 	if ((sc->flags & SB_FLAG_NO_RANGES) == 0 &&
 	    simplebus_fill_ranges(sc->node, sc) < 0) {
@@ -230,7 +230,7 @@ simplebus_detach(device_t dev)
 	if (rv != 0)
 		return (rv);
 
-	sc = device_get_softc(dev);
+	sc = device_get_softc_class(dev, &simplebus_driver);
 	if (sc->ranges != NULL)
 		free(sc->ranges, M_DEVBUF);
 
@@ -241,8 +241,7 @@ void
 simplebus_init(device_t dev, phandle_t node)
 {
 	struct simplebus_softc *sc;
-
-	sc = device_get_softc(dev);
+	sc = device_get_softc_class(dev, &simplebus_driver);
 	if (node == 0)
 		node = ofw_bus_get_node(dev);
 	sc->dev = dev;
@@ -255,6 +254,7 @@ simplebus_init(device_t dev, phandle_t node)
 	OF_getencprop(node, "#address-cells", &sc->acells, sizeof(sc->acells));
 	sc->scells = 1;
 	OF_getencprop(node, "#size-cells", &sc->scells, sizeof(sc->scells));
+
 }
 
 static int
@@ -362,7 +362,7 @@ simplebus_setup_dinfo(device_t dev, phandle_t node,
 	struct simplebus_softc *sc;
 	struct simplebus_devinfo *ndi;
 
-	sc = device_get_softc(dev);
+	sc = device_get_softc_class(dev, &simplebus_driver);
 	if (di == NULL)
 		ndi = malloc(sizeof(*ndi), M_DEVBUF, M_WAITOK | M_ZERO);
 	else
